@@ -1,2 +1,2 @@
 rootProject.name = 'FinFlow'
-include 'service'
+include 'service', 'module-wallet', 'module-auth', 'module-transaction', 'module-ledger'

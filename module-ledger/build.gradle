@@ -1,0 +1,9 @@
+dependencies {
+    implementation project(':module-wallet')
+    implementation project(':module-transaction')
+
+    implementation 'com.lib-commons:module-jpa-audit:0.0.1-SNAPSHOT'
+    implementation 'org.springframework.boot:spring-boot-starter-data-jpa'
+    compileOnly 'org.projectlombok:lombok'
+    annotationProcessor 'org.projectlombok:lombok'
+}
