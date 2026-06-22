@@ -2,8 +2,12 @@ dependencies {
     implementation project(':module-wallet')
     implementation project(':module-transaction')
 
+    implementation 'com.lib-commons:module-authentication:0.0.1-SNAPSHOT'
     implementation 'com.lib-commons:module-jpa-audit:0.0.1-SNAPSHOT'
     implementation 'org.springframework.boot:spring-boot-starter-data-jpa'
+    implementation 'org.springframework.boot:spring-boot-starter-web'
+    implementation 'org.springframework.boot:spring-boot-starter-validation'
+    implementation 'com.fasterxml.jackson.core:jackson-databind'
     compileOnly 'org.projectlombok:lombok'
     annotationProcessor 'org.projectlombok:lombok'
 }
