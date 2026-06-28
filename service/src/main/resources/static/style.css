@@ -1,0 +1,171 @@
+body {
+  font-family: 'Segoe UI', system-ui, sans-serif;
+  transition: background-color 0.2s, color 0.2s;
+}
+
+.auth-card {
+  width: 100%;
+  max-width: 420px;
+}
+
+.brand-logo {
+  font-size: 1.6rem;
+  font-weight: 700;
+  color: #0d6efd;
+}
+
+.balance-display {
+  font-size: 2.5rem;
+  font-weight: 700;
+  color: #0d6efd;
+  letter-spacing: -1px;
+}
+
+.nav-tabs .nav-link {
+  color: #555;
+  border: none;
+  border-bottom: 2px solid transparent;
+  background: none;
+  padding: 0.5rem 1rem;
+}
+
+.nav-tabs .nav-link.active {
+  color: #0d6efd;
+  border-bottom-color: #0d6efd;
+  background: none;
+}
+
+.table th {
+  font-size: 0.78rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: #6c757d;
+}
+
+.table td {
+  font-size: 0.875rem;
+}
+
+.card {
+  border: none;
+  border-radius: 12px;
+}
+
+.navbar {
+  border-radius: 0;
+}
+
+/* ── Dark mode ────────────────────────────────────────────── */
+[data-theme="dark"] {
+  --bs-body-bg:          #0f1117;
+  --bs-body-color:       #e2e8f0;
+  --bs-card-bg:          #1e2130;
+  --bs-border-color:     #2d3347;
+  --bs-secondary-color:  #94a3b8;
+}
+
+[data-theme="dark"] body {
+  background-color: var(--bs-body-bg);
+  color: var(--bs-body-color);
+}
+
+[data-theme="dark"] .card {
+  background-color: var(--bs-card-bg);
+  color: var(--bs-body-color);
+}
+
+[data-theme="dark"] .form-control,
+[data-theme="dark"] .form-select {
+  background-color: #2a2f42;
+  border-color: var(--bs-border-color);
+  color: var(--bs-body-color);
+}
+
+[data-theme="dark"] .form-control:focus,
+[data-theme="dark"] .form-select:focus {
+  background-color: #2a2f42;
+  color: var(--bs-body-color);
+  border-color: #0d6efd;
+  box-shadow: 0 0 0 0.2rem rgba(13,110,253,.25);
+}
+
+[data-theme="dark"] .table {
+  color: var(--bs-body-color);
+}
+
+[data-theme="dark"] .table-light th {
+  background-color: #252a3a;
+  color: #94a3b8;
+}
+
+[data-theme="dark"] .table-hover tbody tr:hover {
+  background-color: #252a3a;
+}
+
+[data-theme="dark"] .nav-tabs {
+  border-color: var(--bs-border-color);
+}
+
+[data-theme="dark"] .nav-tabs .nav-link {
+  color: #94a3b8;
+}
+
+[data-theme="dark"] .nav-tabs .nav-link.active {
+  color: #60a5fa;
+  border-bottom-color: #60a5fa;
+}
+
+[data-theme="dark"] .text-muted {
+  color: #64748b !important;
+}
+
+[data-theme="dark"] .balance-display {
+  color: #60a5fa;
+}
+
+[data-theme="dark"] .bg-light {
+  background-color: var(--bs-body-bg) !important;
+}
+
+[data-theme="dark"] .table-responsive {
+  border-color: var(--bs-border-color);
+}
+
+[data-theme="dark"] .btn-outline-secondary {
+  color: #94a3b8;
+  border-color: #2d3347;
+}
+
+[data-theme="dark"] .btn-outline-secondary:hover {
+  background-color: #2d3347;
+  color: #e2e8f0;
+}
+
+#dark-toggle {
+  font-size: 1.1rem;
+  cursor: pointer;
+  background: none;
+  border: none;
+  padding: 0.25rem 0.5rem;
+  color: white;
+  opacity: 0.85;
+  transition: opacity 0.15s;
+}
+
+#dark-toggle:hover { opacity: 1; }
+
+#dark-toggle-auth {
+  position: absolute;
+  top: 1rem;
+  right: 1rem;
+  background: none;
+  border: none;
+  font-size: 1.2rem;
+  cursor: pointer;
+  color: #555;
+  transition: color 0.15s;
+}
+
+[data-theme="dark"] #dark-toggle-auth {
+  color: #94a3b8;
+}

@@ -40,6 +40,7 @@ public class TransactionService {
     private final TransactionRepository transactionRepository;
     private final LedgerEntryRepository ledgerEntryRepository;
     private final IdempotencyRecordRepository idempotencyRecordRepository;
+    private final TransactionStatusService transactionStatusService;
     private final ObjectMapper objectMapper = new ObjectMapper();
 
     @Transactional
@@ -60,33 +61,37 @@ public class TransactionService {
         Transaction transaction = new Transaction();
         transaction.setTransactionReference(UUID.randomUUID().toString());
         transaction.setType(TransactionType.DEPOSIT);
-        transaction.setStatus(TransactionStatus.PENDING);
         transaction.setDestinationWallet(wallet);
         transaction.setAmount(amount);
         transaction.setCurrency(wallet.getCurrency());
         transaction.setDescription(description);
-        transaction = transactionRepository.save(transaction);
+        transaction = transactionStatusService.savePending(transaction);
 
-        BigDecimal balanceAfter = wallet.getAmount().add(amount);
+        try {
+            BigDecimal balanceAfter = wallet.getAmount().add(amount);
 
-        LedgerEntry ledgerEntry = new LedgerEntry();
-        ledgerEntry.setTransaction(transaction);
-        ledgerEntry.setWallet(wallet);
-        ledgerEntry.setEntryType(LedgerEntryType.CREDIT);
-        ledgerEntry.setAmount(amount);
-        ledgerEntry.setBalanceAfter(balanceAfter);
-        ledgerEntry.setDescription(description);
-        ledgerEntryRepository.save(ledgerEntry);
+            LedgerEntry ledgerEntry = new LedgerEntry();
+            ledgerEntry.setTransaction(transaction);
+            ledgerEntry.setWallet(wallet);
+            ledgerEntry.setEntryType(LedgerEntryType.CREDIT);
+            ledgerEntry.setAmount(amount);
+            ledgerEntry.setBalanceAfter(balanceAfter);
+            ledgerEntry.setDescription(description);
+            ledgerEntryRepository.save(ledgerEntry);
 
-        wallet.setAmount(balanceAfter);
-        wallet = walletRepository.save(wallet);
+            wallet.setAmount(balanceAfter);
+            wallet = walletRepository.save(wallet);
 
-        transaction.setStatus(TransactionStatus.COMPLETED);
-        transaction = transactionRepository.save(transaction);
+            transaction.setStatus(TransactionStatus.COMPLETED);
+            transaction = transactionRepository.save(transaction);
 
-        TransactionResponseDTO response = toDto(transaction, wallet);
-        saveIdempotencyRecord(idempotencyKey, requestHash, transaction.getTransactionId(), response);
-        return response;
+            TransactionResponseDTO response = toDto(transaction, wallet);
+            saveIdempotencyRecord(idempotencyKey, requestHash, transaction.getTransactionId(), response);
+            return response;
+        } catch (Exception e) {
+            transactionStatusService.markFailed(transaction);
+            throw e;
+        }
     }
 
     @Transactional
@@ -111,33 +116,37 @@ public class TransactionService {
         Transaction transaction = new Transaction();
         transaction.setTransactionReference(UUID.randomUUID().toString());
         transaction.setType(TransactionType.WITHDRAWAL);
-        transaction.setStatus(TransactionStatus.PENDING);
         transaction.setSourceWallet(wallet);
         transaction.setAmount(amount);
         transaction.setCurrency(wallet.getCurrency());
         transaction.setDescription(description);
-        transaction = transactionRepository.save(transaction);
+        transaction = transactionStatusService.savePending(transaction);
 
-        BigDecimal balanceAfter = wallet.getAmount().subtract(amount);
+        try {
+            BigDecimal balanceAfter = wallet.getAmount().subtract(amount);
 
-        LedgerEntry ledgerEntry = new LedgerEntry();
-        ledgerEntry.setTransaction(transaction);
-        ledgerEntry.setWallet(wallet);
-        ledgerEntry.setEntryType(LedgerEntryType.DEBIT);
-        ledgerEntry.setAmount(amount);
-        ledgerEntry.setBalanceAfter(balanceAfter);
-        ledgerEntry.setDescription(description);
-        ledgerEntryRepository.save(ledgerEntry);
+            LedgerEntry ledgerEntry = new LedgerEntry();
+            ledgerEntry.setTransaction(transaction);
+            ledgerEntry.setWallet(wallet);
+            ledgerEntry.setEntryType(LedgerEntryType.DEBIT);
+            ledgerEntry.setAmount(amount);
+            ledgerEntry.setBalanceAfter(balanceAfter);
+            ledgerEntry.setDescription(description);
+            ledgerEntryRepository.save(ledgerEntry);
 
-        wallet.setAmount(balanceAfter);
-        wallet = walletRepository.save(wallet);
+            wallet.setAmount(balanceAfter);
+            wallet = walletRepository.save(wallet);
 
-        transaction.setStatus(TransactionStatus.COMPLETED);
-        transaction = transactionRepository.save(transaction);
+            transaction.setStatus(TransactionStatus.COMPLETED);
+            transaction = transactionRepository.save(transaction);
 
-        TransactionResponseDTO response = toDto(transaction, wallet);
-        saveIdempotencyRecord(idempotencyKey, requestHash, transaction.getTransactionId(), response);
-        return response;
+            TransactionResponseDTO response = toDto(transaction, wallet);
+            saveIdempotencyRecord(idempotencyKey, requestHash, transaction.getTransactionId(), response);
+            return response;
+        } catch (Exception e) {
+            transactionStatusService.markFailed(transaction);
+            throw e;
+        }
     }
 
     @Transactional
@@ -180,59 +189,63 @@ public class TransactionService {
         Transaction transaction = new Transaction();
         transaction.setTransactionReference(UUID.randomUUID().toString());
         transaction.setType(TransactionType.TRANSFER);
-        transaction.setStatus(TransactionStatus.PENDING);
         transaction.setSourceWallet(sourceWallet);
         transaction.setDestinationWallet(destinationWallet);
         transaction.setAmount(amount);
         transaction.setCurrency(sourceWallet.getCurrency());
         transaction.setDescription(description);
-        transaction = transactionRepository.save(transaction);
+        transaction = transactionStatusService.savePending(transaction);
 
-        BigDecimal sourceBalanceAfter = sourceWallet.getAmount().subtract(amount);
-        BigDecimal destinationBalanceAfter = destinationWallet.getAmount().add(amount);
+        try {
+            BigDecimal sourceBalanceAfter = sourceWallet.getAmount().subtract(amount);
+            BigDecimal destinationBalanceAfter = destinationWallet.getAmount().add(amount);
 
-        LedgerEntry debitEntry = new LedgerEntry();
-        debitEntry.setTransaction(transaction);
-        debitEntry.setWallet(sourceWallet);
-        debitEntry.setEntryType(LedgerEntryType.DEBIT);
-        debitEntry.setAmount(amount);
-        debitEntry.setBalanceAfter(sourceBalanceAfter);
-        debitEntry.setDescription(description);
-        ledgerEntryRepository.save(debitEntry);
+            LedgerEntry debitEntry = new LedgerEntry();
+            debitEntry.setTransaction(transaction);
+            debitEntry.setWallet(sourceWallet);
+            debitEntry.setEntryType(LedgerEntryType.DEBIT);
+            debitEntry.setAmount(amount);
+            debitEntry.setBalanceAfter(sourceBalanceAfter);
+            debitEntry.setDescription(description);
+            ledgerEntryRepository.save(debitEntry);
 
-        LedgerEntry creditEntry = new LedgerEntry();
-        creditEntry.setTransaction(transaction);
-        creditEntry.setWallet(destinationWallet);
-        creditEntry.setEntryType(LedgerEntryType.CREDIT);
-        creditEntry.setAmount(amount);
-        creditEntry.setBalanceAfter(destinationBalanceAfter);
-        creditEntry.setDescription(description);
-        ledgerEntryRepository.save(creditEntry);
+            LedgerEntry creditEntry = new LedgerEntry();
+            creditEntry.setTransaction(transaction);
+            creditEntry.setWallet(destinationWallet);
+            creditEntry.setEntryType(LedgerEntryType.CREDIT);
+            creditEntry.setAmount(amount);
+            creditEntry.setBalanceAfter(destinationBalanceAfter);
+            creditEntry.setDescription(description);
+            ledgerEntryRepository.save(creditEntry);
 
-        sourceWallet.setAmount(sourceBalanceAfter);
-        sourceWallet = walletRepository.save(sourceWallet);
+            sourceWallet.setAmount(sourceBalanceAfter);
+            sourceWallet = walletRepository.save(sourceWallet);
 
-        destinationWallet.setAmount(destinationBalanceAfter);
-        destinationWallet = walletRepository.save(destinationWallet);
+            destinationWallet.setAmount(destinationBalanceAfter);
+            destinationWallet = walletRepository.save(destinationWallet);
 
-        transaction.setStatus(TransactionStatus.COMPLETED);
-        transaction = transactionRepository.save(transaction);
+            transaction.setStatus(TransactionStatus.COMPLETED);
+            transaction = transactionRepository.save(transaction);
 
-        TransferResponseDTO response = new TransferResponseDTO(
-                transaction.getTransactionId(),
-                transaction.getTransactionReference(),
-                transaction.getType(),
-                transaction.getStatus(),
-                sourceWallet.getWalletId(),
-                destinationWallet.getWalletId(),
-                transaction.getAmount(),
-                transaction.getCurrency(),
-                sourceWallet.getAmount(),
-                destinationWallet.getAmount(),
-                transaction.getDescription()
-        );
-        saveIdempotencyRecord(idempotencyKey, requestHash, transaction.getTransactionId(), response);
-        return response;
+            TransferResponseDTO response = new TransferResponseDTO(
+                    transaction.getTransactionId(),
+                    transaction.getTransactionReference(),
+                    transaction.getType(),
+                    transaction.getStatus(),
+                    sourceWallet.getWalletId(),
+                    destinationWallet.getWalletId(),
+                    transaction.getAmount(),
+                    transaction.getCurrency(),
+                    sourceWallet.getAmount(),
+                    destinationWallet.getAmount(),
+                    transaction.getDescription()
+            );
+            saveIdempotencyRecord(idempotencyKey, requestHash, transaction.getTransactionId(), response);
+            return response;
+        } catch (Exception e) {
+            transactionStatusService.markFailed(transaction);
+            throw e;
+        }
     }
 
     public PagedResponse<TransactionHistoryDTO> getWalletTransactions(UUID walletId, SearchRequest search) {

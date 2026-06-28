@@ -1,0 +1,278 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>FinFlow</title>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" />
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css" />
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body class="bg-light">
+
+<!-- ───────────────────────── AUTH ───────────────────────── -->
+<div id="auth-section" class="d-none">
+  <button id="dark-toggle-auth" title="Toggle dark mode">🌙</button>
+  <div class="container d-flex justify-content-center align-items-center min-vh-100">
+    <div class="card shadow-sm auth-card">
+      <div class="card-body p-4">
+        <div class="text-center mb-4">
+          <span class="brand-logo"><i class="bi bi-cash-coin"></i> FinFlow</span>
+        </div>
+
+        <ul class="nav nav-tabs mb-4" id="authTabs">
+          <li class="nav-item">
+            <button class="nav-link active" data-tab="login">Login</button>
+          </li>
+          <li class="nav-item">
+            <button class="nav-link" data-tab="register">Register</button>
+          </li>
+        </ul>
+
+        <div id="auth-alert" class="d-none"></div>
+
+        <!-- Login Form -->
+        <form id="login-form">
+          <div class="mb-3">
+            <label class="form-label">Username</label>
+            <input type="text" id="login-username" class="form-control" required />
+          </div>
+          <div class="mb-3">
+            <label class="form-label">Password</label>
+            <input type="password" id="login-password" class="form-control" required />
+          </div>
+          <button type="submit" class="btn btn-primary w-100">Login</button>
+        </form>
+
+        <!-- Register Form -->
+        <form id="register-form" class="d-none">
+          <div class="mb-3">
+            <label class="form-label">Full Name</label>
+            <input type="text" id="reg-name" class="form-control" required />
+          </div>
+          <div class="mb-3">
+            <label class="form-label">Email</label>
+            <input type="email" id="reg-email" class="form-control" required />
+          </div>
+          <div class="mb-3">
+            <label class="form-label">Username</label>
+            <input type="text" id="reg-username" class="form-control" required />
+          </div>
+          <div class="mb-3">
+            <label class="form-label">Password</label>
+            <input type="password" id="reg-password" class="form-control" required />
+          </div>
+          <button type="submit" class="btn btn-primary w-100">Register</button>
+        </form>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ───────────────────────── DASHBOARD ───────────────────────── -->
+<div id="dashboard-section" class="d-none">
+
+  <!-- Navbar -->
+  <nav class="navbar navbar-dark bg-primary px-4">
+    <span class="navbar-brand fw-bold"><i class="bi bi-cash-coin"></i> FinFlow</span>
+    <div class="d-flex align-items-center gap-3">
+      <span class="text-white" id="nav-username"></span>
+      <button id="dark-toggle" title="Toggle dark mode">🌙</button>
+      <button class="btn btn-outline-light btn-sm" id="logout-btn">
+        <i class="bi bi-box-arrow-right"></i> Logout
+      </button>
+    </div>
+  </nav>
+
+  <div class="container py-4">
+    <div id="dashboard-alert" class="d-none mb-3"></div>
+
+    <!-- Create Wallet Prompt -->
+    <div id="create-wallet-section" class="d-none">
+      <div class="card shadow-sm mb-4">
+        <div class="card-body text-center py-5">
+          <h5 class="mb-3">You don't have a wallet yet</h5>
+          <div class="d-flex justify-content-center gap-2 flex-wrap">
+            <select id="wallet-currency" class="form-select w-auto">
+              <option value="USD">USD</option>
+              <option value="EUR">EUR</option>
+              <option value="GBP">GBP</option>
+              <option value="INR">INR</option>
+            </select>
+            <button class="btn btn-primary" id="create-wallet-btn">
+              <i class="bi bi-wallet2"></i> Create Wallet
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Wallet + Actions -->
+    <div id="wallet-section" class="d-none">
+      <div class="row g-4 mb-4">
+
+        <!-- Wallet Card -->
+        <div class="col-md-5">
+          <div class="card shadow-sm h-100">
+            <div class="card-body">
+              <div class="d-flex justify-content-between align-items-start mb-3">
+                <h5 class="card-title mb-0">My Wallet</h5>
+                <span id="wallet-status-badge" class="badge"></span>
+              </div>
+              <div class="balance-display mb-1" id="wallet-balance">—</div>
+              <div class="text-muted small mb-4" id="wallet-currency-display"></div>
+              <div class="d-flex gap-2">
+                <button class="btn btn-outline-warning btn-sm" id="freeze-btn">
+                  <i class="bi bi-lock"></i> Freeze
+                </button>
+                <button class="btn btn-outline-success btn-sm d-none" id="unfreeze-btn">
+                  <i class="bi bi-unlock"></i> Unfreeze
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Action Tabs -->
+        <div class="col-md-7">
+          <div class="card shadow-sm h-100">
+            <div class="card-body">
+              <ul class="nav nav-tabs mb-3" id="actionTabs">
+                <li class="nav-item">
+                  <button class="nav-link active" data-action="deposit">
+                    <i class="bi bi-arrow-down-circle"></i> Deposit
+                  </button>
+                </li>
+                <li class="nav-item">
+                  <button class="nav-link" data-action="withdraw">
+                    <i class="bi bi-arrow-up-circle"></i> Withdraw
+                  </button>
+                </li>
+                <li class="nav-item">
+                  <button class="nav-link" data-action="transfer">
+                    <i class="bi bi-arrow-left-right"></i> Transfer
+                  </button>
+                </li>
+              </ul>
+
+              <div id="action-alert" class="d-none mb-3"></div>
+
+              <!-- Deposit Form -->
+              <form id="deposit-form">
+                <div class="mb-3">
+                  <label class="form-label">Amount</label>
+                  <input type="number" id="deposit-amount" class="form-control" min="0.01" step="0.01" required />
+                </div>
+                <div class="mb-3">
+                  <label class="form-label">Description <span class="text-muted">(optional)</span></label>
+                  <input type="text" id="deposit-desc" class="form-control" />
+                </div>
+                <button type="submit" class="btn btn-success w-100">Deposit</button>
+              </form>
+
+              <!-- Withdraw Form -->
+              <form id="withdraw-form" class="d-none">
+                <div class="mb-3">
+                  <label class="form-label">Amount</label>
+                  <input type="number" id="withdraw-amount" class="form-control" min="0.01" step="0.01" required />
+                </div>
+                <div class="mb-3">
+                  <label class="form-label">Description <span class="text-muted">(optional)</span></label>
+                  <input type="text" id="withdraw-desc" class="form-control" />
+                </div>
+                <button type="submit" class="btn btn-danger w-100">Withdraw</button>
+              </form>
+
+              <!-- Transfer Form -->
+              <form id="transfer-form" class="d-none">
+                <div class="mb-3">
+                  <label class="form-label">Recipient Username</label>
+                  <input type="text" id="transfer-username" class="form-control" required />
+                </div>
+                <div class="mb-3">
+                  <label class="form-label">Amount</label>
+                  <input type="number" id="transfer-amount" class="form-control" min="0.01" step="0.01" required />
+                </div>
+                <div class="mb-3">
+                  <label class="form-label">Description <span class="text-muted">(optional)</span></label>
+                  <input type="text" id="transfer-desc" class="form-control" />
+                </div>
+                <button type="submit" class="btn btn-primary w-100">Transfer</button>
+              </form>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Transaction History -->
+      <div class="card shadow-sm">
+        <div class="card-body">
+          <div class="d-flex justify-content-between align-items-center mb-3">
+            <h5 class="mb-0">Transaction History</h5>
+            <button class="btn btn-outline-secondary btn-sm" id="refresh-history-btn">
+              <i class="bi bi-arrow-clockwise"></i> Refresh
+            </button>
+          </div>
+
+          <!-- Filters -->
+          <div class="row g-2 mb-3">
+            <div class="col-sm-4">
+              <select id="filter-status" class="form-select form-select-sm">
+                <option value="">All Statuses</option>
+                <option value="PENDING">Pending</option>
+                <option value="COMPLETED">Completed</option>
+                <option value="FAILED">Failed</option>
+              </select>
+            </div>
+            <div class="col-sm-3">
+              <input type="date" id="filter-from" class="form-control form-control-sm" placeholder="From" />
+            </div>
+            <div class="col-sm-3">
+              <input type="date" id="filter-to" class="form-control form-control-sm" placeholder="To" />
+            </div>
+            <div class="col-sm-2">
+              <button class="btn btn-primary btn-sm w-100" id="apply-filter-btn">Filter</button>
+            </div>
+          </div>
+
+          <!-- Table -->
+          <div class="table-responsive">
+            <table class="table table-sm table-hover align-middle">
+              <thead class="table-light">
+                <tr>
+                  <th>Date</th>
+                  <th>Type</th>
+                  <th>Status</th>
+                  <th class="text-end">Amount</th>
+                  <th>Currency</th>
+                  <th>Description</th>
+                </tr>
+              </thead>
+              <tbody id="tx-table-body">
+                <tr><td colspan="6" class="text-center text-muted py-3">Loading…</td></tr>
+              </tbody>
+            </table>
+          </div>
+
+          <!-- Pagination -->
+          <div class="d-flex justify-content-between align-items-center mt-2">
+            <span class="text-muted small" id="tx-page-info"></span>
+            <div class="d-flex gap-2">
+              <button class="btn btn-outline-secondary btn-sm" id="prev-page-btn" disabled>
+                <i class="bi bi-chevron-left"></i> Prev
+              </button>
+              <button class="btn btn-outline-secondary btn-sm" id="next-page-btn" disabled>
+                Next <i class="bi bi-chevron-right"></i>
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
