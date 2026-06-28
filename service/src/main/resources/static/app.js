@@ -32,15 +32,18 @@ async function api(path, options = {}) {
 // ─── Alerts ──────────────────────────────────────────────────────────────────
 function showAlert(containerId, message, type = 'danger') {
   const el = document.getElementById(containerId);
-  el.className = `alert alert-${type} alert-dismissible fade show`;
-  el.innerHTML = `${message}<button type="button" class="btn-close" data-bs-dismiss="alert"></button>`;
+  if (!el) return;
+  el.className = `alert alert-${type}`;
+  el.textContent = message;
   el.classList.remove('d-none');
+  if (type === 'success') setTimeout(() => clearAlert(containerId), 3000);
 }
 
 function clearAlert(containerId) {
   const el = document.getElementById(containerId);
+  if (!el) return;
   el.className = 'd-none';
-  el.innerHTML = '';
+  el.textContent = '';
 }
 
 // ─── Auth ─────────────────────────────────────────────────────────────────────
@@ -201,10 +204,15 @@ function renderTransactions(data) {
       const amount = Number(tx.amount).toFixed(2);
       const typeBadge   = typeToBadge(tx.type);
       const statusBadge = statusToBadge(tx.status);
+      let parties = '';
+      if (tx.type === 'TRANSFER') {
+        if (tx.sourceUsername)      parties += `<span class="text-muted small ms-1">← ${tx.sourceUsername}</span>`;
+        if (tx.destinationUsername) parties += `<span class="text-muted small ms-1">→ ${tx.destinationUsername}</span>`;
+      }
       return `
         <tr>
           <td class="text-nowrap small">${date}</td>
-          <td>${typeBadge}</td>
+          <td>${typeBadge}${parties}</td>
           <td>${statusBadge}</td>
           <td class="text-end fw-semibold">${amount}</td>
           <td>${tx.currency}</td>
@@ -368,6 +376,7 @@ document.getElementById('next-page-btn').addEventListener('click', () => loadTra
 // ─── Dark mode ────────────────────────────────────────────────────────────────
 function applyTheme(dark) {
   document.documentElement.setAttribute('data-theme', dark ? 'dark' : 'light');
+  document.documentElement.setAttribute('data-bs-theme', dark ? 'dark' : 'light');
   const icon = dark ? '☀️' : '🌙';
   document.getElementById('dark-toggle').textContent      = icon;
   document.getElementById('dark-toggle-auth').textContent = icon;

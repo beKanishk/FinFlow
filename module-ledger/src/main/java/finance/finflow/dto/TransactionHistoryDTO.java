@@ -1,6 +1,5 @@
 package finance.finflow.dto;
 
-import com.fasterxml.jackson.annotation.JsonFormat;
 import finance.finflow.module.TransactionStatus;
 import finance.finflow.module.TransactionType;
 import lombok.AllArgsConstructor;
@@ -21,11 +20,12 @@ public class TransactionHistoryDTO {
     private TransactionType type;
     private TransactionStatus status;
     private UUID sourceWalletId;
+    private String sourceUsername;
     private UUID destinationWalletId;
+    private String destinationUsername;
     private BigDecimal amount;
     private String currency;
     private String description;
 
-    @JsonFormat(shape = JsonFormat.Shape.STRING)
     private Instant createdAt;
 }

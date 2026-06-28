@@ -59,7 +59,7 @@ public class TransactionService {
         }
 
         Transaction transaction = new Transaction();
-        transaction.setTransactionReference(UUID.randomUUID().toString());
+
         transaction.setType(TransactionType.DEPOSIT);
         transaction.setDestinationWallet(wallet);
         transaction.setAmount(amount);
@@ -114,7 +114,7 @@ public class TransactionService {
         }
 
         Transaction transaction = new Transaction();
-        transaction.setTransactionReference(UUID.randomUUID().toString());
+
         transaction.setType(TransactionType.WITHDRAWAL);
         transaction.setSourceWallet(wallet);
         transaction.setAmount(amount);
@@ -187,7 +187,7 @@ public class TransactionService {
         }
 
         Transaction transaction = new Transaction();
-        transaction.setTransactionReference(UUID.randomUUID().toString());
+
         transaction.setType(TransactionType.TRANSFER);
         transaction.setSourceWallet(sourceWallet);
         transaction.setDestinationWallet(destinationWallet);
@@ -291,13 +291,17 @@ public class TransactionService {
     }
 
     private TransactionHistoryDTO toHistoryDto(Transaction t) {
+        Wallet src  = t.getSourceWallet();
+        Wallet dest = t.getDestinationWallet();
         return new TransactionHistoryDTO(
                 t.getTransactionId(),
                 t.getTransactionReference(),
                 t.getType(),
                 t.getStatus(),
-                t.getSourceWallet() != null ? t.getSourceWallet().getWalletId() : null,
-                t.getDestinationWallet() != null ? t.getDestinationWallet().getWalletId() : null,
+                src  != null ? src.getWalletId()            : null,
+                src  != null ? src.getUser().getUsername()  : null,
+                dest != null ? dest.getWalletId()           : null,
+                dest != null ? dest.getUser().getUsername() : null,
                 t.getAmount(),
                 t.getCurrency(),
                 t.getDescription(),
