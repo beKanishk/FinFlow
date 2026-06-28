@@ -1,18 +1,18 @@
 package finance.finflow.controller;
 
 import com.moduleauthentication.authentication.service.AuthHelper;
+import finance.finflow.dto.ApiResponse;
 import finance.finflow.dto.RegisterRequest;
 import finance.finflow.dto.UserResponseDTO;
 import finance.finflow.module.User;
 import finance.finflow.repository.UserRepository;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
-import org.springframework.http.HttpStatus;
-import org.springframework.http.ResponseEntity;
-import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.security.crypto.password.PasswordEncoder;
 
 import java.util.List;
+import java.util.NoSuchElementException;
 
 @RestController
 @RequestMapping("/users")
@@ -24,9 +24,9 @@ public class UserController {
     private final AuthHelper authHelper;
 
     @PostMapping("/register")
-    public UserResponseDTO register(@Valid @RequestBody RegisterRequest request) {
+    public ApiResponse<UserResponseDTO> register(@Valid @RequestBody RegisterRequest request) {
         if (userRepository.findByUsername(request.getUsername()).isPresent()) {
-            throw new RuntimeException("Username already exists: " + request.getUsername());
+            throw new IllegalArgumentException("Username already exists: " + request.getUsername());
         }
 
         User user = new User();
@@ -37,23 +37,22 @@ public class UserController {
         user.setRoles(List.of("USER"));
 
         User saved = userRepository.save(user);
-        return toDto(saved);
+        return ApiResponse.ok(toDto(saved));
     }
 
     @GetMapping("/me")
-    public UserResponseDTO getCurrentUser(@RequestHeader("Authorization") String authHeader) {
+    public ApiResponse<UserResponseDTO> getCurrentUser(@RequestHeader("Authorization") String authHeader) {
         String username = authHelper.extractUsername(authHeader);
         User user = userRepository.findByUsername(username)
-                .orElseThrow(() -> new RuntimeException("User not found: " + username));
-        return toDto(user);
+                .orElseThrow(() -> new NoSuchElementException("User not found: " + username));
+        return ApiResponse.ok(toDto(user));
     }
 
     @GetMapping("/{username}")
-    public ResponseEntity<UserResponseDTO> getByUsername(@PathVariable String username) {
-        return userRepository.findByUsername(username)
-                .map(this::toDto)
-                .map(ResponseEntity::ok)
-                .orElseGet(() -> ResponseEntity.status(HttpStatus.NOT_FOUND).build());
+    public ApiResponse<UserResponseDTO> getByUsername(@PathVariable String username) {
+        User user = userRepository.findByUsername(username)
+                .orElseThrow(() -> new NoSuchElementException("User not found: " + username));
+        return ApiResponse.ok(toDto(user));
     }
 
     private UserResponseDTO toDto(User user) {

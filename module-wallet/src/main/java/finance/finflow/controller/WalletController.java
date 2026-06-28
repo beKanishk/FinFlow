@@ -1,6 +1,7 @@
 package finance.finflow.controller;
 
 import com.moduleauthentication.authentication.service.AuthHelper;
+import finance.finflow.dto.ApiResponse;
 import finance.finflow.dto.BalanceResponseDTO;
 import finance.finflow.dto.CreateWalletRequest;
 import finance.finflow.dto.WalletResponseDTO;
@@ -21,38 +22,38 @@ public class WalletController {
     private final AuthHelper authHelper;
 
     @PostMapping
-    public WalletResponseDTO createWallet(@RequestHeader("Authorization") String authHeader,
-                                           @Valid @RequestBody CreateWalletRequest request) {
+    public ApiResponse<WalletResponseDTO> createWallet(@RequestHeader("Authorization") String authHeader,
+                                                        @Valid @RequestBody CreateWalletRequest request) {
         String username = authHelper.extractUsername(authHeader);
         Wallet wallet = walletService.createWallet(username, request.getCurrency());
-        return toDto(wallet);
+        return ApiResponse.ok(toDto(wallet));
     }
 
     @GetMapping("/me")
-    public WalletResponseDTO getMyWallet(@RequestHeader("Authorization") String authHeader) {
+    public ApiResponse<WalletResponseDTO> getMyWallet(@RequestHeader("Authorization") String authHeader) {
         String username = authHelper.extractUsername(authHeader);
-        return toDto(walletService.getWalletForUser(username));
+        return ApiResponse.ok(toDto(walletService.getWalletForUser(username)));
     }
 
     @GetMapping("/{id}")
-    public WalletResponseDTO getWallet(@PathVariable UUID id) {
-        return toDto(walletService.getWallet(id));
+    public ApiResponse<WalletResponseDTO> getWallet(@PathVariable UUID id) {
+        return ApiResponse.ok(toDto(walletService.getWallet(id)));
     }
 
     @GetMapping("/{id}/balance")
-    public BalanceResponseDTO getBalance(@PathVariable UUID id) {
+    public ApiResponse<BalanceResponseDTO> getBalance(@PathVariable UUID id) {
         Wallet wallet = walletService.getWallet(id);
-        return new BalanceResponseDTO(wallet.getWalletId(), wallet.getAmount(), wallet.getCurrency());
+        return ApiResponse.ok(new BalanceResponseDTO(wallet.getWalletId(), wallet.getAmount(), wallet.getCurrency()));
     }
 
     @PutMapping("/{id}/freeze")
-    public WalletResponseDTO freeze(@PathVariable UUID id) {
-        return toDto(walletService.freeze(id));
+    public ApiResponse<WalletResponseDTO> freeze(@PathVariable UUID id) {
+        return ApiResponse.ok(toDto(walletService.freeze(id)));
     }
 
     @PutMapping("/{id}/unfreeze")
-    public WalletResponseDTO unfreeze(@PathVariable UUID id) {
-        return toDto(walletService.unfreeze(id));
+    public ApiResponse<WalletResponseDTO> unfreeze(@PathVariable UUID id) {
+        return ApiResponse.ok(toDto(walletService.unfreeze(id)));
     }
 
     private WalletResponseDTO toDto(Wallet wallet) {

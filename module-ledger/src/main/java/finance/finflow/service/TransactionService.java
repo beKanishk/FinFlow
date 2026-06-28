@@ -1,6 +1,9 @@
 package finance.finflow.service;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import finance.finflow.dto.PagedResponse;
+import finance.finflow.dto.SearchRequest;
+import finance.finflow.dto.TransactionHistoryDTO;
 import finance.finflow.dto.TransactionResponseDTO;
 import finance.finflow.dto.TransferResponseDTO;
 import finance.finflow.module.*;
@@ -17,13 +20,20 @@ import org.springframework.transaction.annotation.Transactional;
 import java.math.BigDecimal;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
+import java.time.Instant;
+import java.time.ZoneOffset;
 import java.util.HexFormat;
+import java.util.NoSuchElementException;
 import java.util.Optional;
 import java.util.UUID;
 
 @Service
 @RequiredArgsConstructor
 public class TransactionService {
+
+    private static final String FIELD_STATUS = "status";
+    private static final String FIELD_FROM   = "from";
+    private static final String FIELD_TO     = "to";
 
     private final WalletRepository walletRepository;
     private final UserRepository userRepository;
@@ -223,6 +233,63 @@ public class TransactionService {
         );
         saveIdempotencyRecord(idempotencyKey, requestHash, transaction.getTransactionId(), response);
         return response;
+    }
+
+    public PagedResponse<TransactionHistoryDTO> getWalletTransactions(UUID walletId, SearchRequest search) {
+        walletRepository.findByWalletId(walletId)
+                .orElseThrow(() -> new NoSuchElementException("Wallet not found: " + walletId));
+
+        String status = search.getString(FIELD_STATUS);
+
+        Instant fromInstant = null;
+        if (search.getString(FIELD_FROM) != null) {
+            fromInstant = search.getLocalDate(FIELD_FROM).atStartOfDay(ZoneOffset.UTC).toInstant();
+        }
+
+        Instant toInstant = null;
+        if (search.getString(FIELD_TO) != null) {
+            toInstant = search.getLocalDate(FIELD_TO).plusDays(1).atStartOfDay(ZoneOffset.UTC).toInstant();
+        }
+
+        return PagedResponse.of(transactionRepository.findByWallet(
+                walletId.toString(), status, fromInstant, toInstant, search.toPageRequest()
+        ).map(this::toHistoryDto));
+    }
+
+    public PagedResponse<TransactionHistoryDTO> getUserTransactions(String username, SearchRequest search) {
+        User user = userRepository.findByUsername(username)
+                .orElseThrow(() -> new NoSuchElementException("User not found: " + username));
+
+        String status = search.getString(FIELD_STATUS);
+
+        Instant fromInstant = null;
+        if (search.getString(FIELD_FROM) != null) {
+            fromInstant = search.getLocalDate(FIELD_FROM).atStartOfDay(ZoneOffset.UTC).toInstant();
+        }
+
+        Instant toInstant = null;
+        if (search.getString(FIELD_TO) != null) {
+            toInstant = search.getLocalDate(FIELD_TO).plusDays(1).atStartOfDay(ZoneOffset.UTC).toInstant();
+        }
+
+        return PagedResponse.of(transactionRepository.findByUser(
+                user.getId(), status, fromInstant, toInstant, search.toPageRequest()
+        ).map(this::toHistoryDto));
+    }
+
+    private TransactionHistoryDTO toHistoryDto(Transaction t) {
+        return new TransactionHistoryDTO(
+                t.getTransactionId(),
+                t.getTransactionReference(),
+                t.getType(),
+                t.getStatus(),
+                t.getSourceWallet() != null ? t.getSourceWallet().getWalletId() : null,
+                t.getDestinationWallet() != null ? t.getDestinationWallet().getWalletId() : null,
+                t.getAmount(),
+                t.getCurrency(),
+                t.getDescription(),
+                t.getCreatedAt()
+        );
     }
 
     private <T> Optional<T> checkIdempotency(String key, String requestHash, Class<T> responseType) {
