@@ -243,7 +243,7 @@ Each entry stores `balanceAfter` so the full balance history is reconstructible.
 
 ## Timestamps
 
-All timestamps in API responses are in **IST (Asia/Kolkata, UTC+5:30)** in ISO-8601 format:
+All timestamps in API responses are in **IST (Asia/Kolkata, UTC+5:30)**:
 ```
 2026-07-04T22:00:00+05:30
 ```
@@ -262,9 +262,5 @@ Open `http://localhost:8080` in a browser. Features:
 - Dark mode toggle
 
 ---
-
-## Postman Collection
-
-Import `FinFlow.postman_collection.json` from `D:\Downloads\` into Postman.
 
 The Login request auto-captures the JWT token. Create Wallet auto-captures the wallet ID. Initiate Payment auto-captures the payment order ID — run the webhook request immediately after to simulate gateway confirmation.
