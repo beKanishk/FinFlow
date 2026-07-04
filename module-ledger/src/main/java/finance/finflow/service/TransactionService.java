@@ -7,6 +7,7 @@ import finance.finflow.dto.TransactionHistoryDTO;
 import finance.finflow.dto.TransactionResponseDTO;
 import finance.finflow.dto.TransferResponseDTO;
 import finance.finflow.module.*;
+import finance.finflow.module.PaymentMethod;
 import finance.finflow.repository.IdempotencyRecordRepository;
 import finance.finflow.repository.LedgerEntryRepository;
 import finance.finflow.repository.TransactionRepository;
@@ -32,6 +33,7 @@ import java.util.UUID;
 public class TransactionService {
 
     private static final String FIELD_STATUS = "status";
+    private static final String FIELD_TYPE   = "type";
     private static final String FIELD_FROM   = "from";
     private static final String FIELD_TO     = "to";
 
@@ -45,6 +47,11 @@ public class TransactionService {
 
     @Transactional
     public TransactionResponseDTO deposit(UUID walletId, BigDecimal amount, String description, String idempotencyKey) {
+        return deposit(walletId, amount, description, idempotencyKey, null);
+    }
+
+    @Transactional
+    public TransactionResponseDTO deposit(UUID walletId, BigDecimal amount, String description, String idempotencyKey, PaymentMethod paymentMethod) {
         String requestHash = hash(walletId, amount, description);
         Optional<TransactionResponseDTO> existing = checkIdempotency(idempotencyKey, requestHash, TransactionResponseDTO.class);
         if (existing.isPresent()) {
@@ -65,6 +72,7 @@ public class TransactionService {
         transaction.setAmount(amount);
         transaction.setCurrency(wallet.getCurrency());
         transaction.setDescription(description);
+        transaction.setPaymentMethod(paymentMethod);
         transaction = transactionStatusService.savePending(transaction);
 
         try {
@@ -253,6 +261,7 @@ public class TransactionService {
                 .orElseThrow(() -> new NoSuchElementException("Wallet not found: " + walletId));
 
         String status = search.getString(FIELD_STATUS);
+        String type   = search.getString(FIELD_TYPE);
 
         Instant fromInstant = null;
         if (search.getString(FIELD_FROM) != null) {
@@ -265,7 +274,7 @@ public class TransactionService {
         }
 
         return PagedResponse.of(transactionRepository.findByWallet(
-                walletId.toString(), status, fromInstant, toInstant, search.toPageRequest()
+                walletId.toString(), status, type, fromInstant, toInstant, search.toPageRequest()
         ).map(this::toHistoryDto));
     }
 
@@ -274,6 +283,7 @@ public class TransactionService {
                 .orElseThrow(() -> new NoSuchElementException("User not found: " + username));
 
         String status = search.getString(FIELD_STATUS);
+        String type   = search.getString(FIELD_TYPE);
 
         Instant fromInstant = null;
         if (search.getString(FIELD_FROM) != null) {
@@ -286,7 +296,7 @@ public class TransactionService {
         }
 
         return PagedResponse.of(transactionRepository.findByUser(
-                user.getId(), status, fromInstant, toInstant, search.toPageRequest()
+                user.getId(), status, type, fromInstant, toInstant, search.toPageRequest()
         ).map(this::toHistoryDto));
     }
 
@@ -305,6 +315,7 @@ public class TransactionService {
                 t.getAmount(),
                 t.getCurrency(),
                 t.getDescription(),
+                t.getPaymentMethod(),
                 t.getCreatedAt()
         );
     }

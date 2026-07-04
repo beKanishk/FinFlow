@@ -140,7 +140,7 @@
               <ul class="nav nav-tabs mb-3" id="actionTabs">
                 <li class="nav-item">
                   <button class="nav-link active" data-action="deposit">
-                    <i class="bi bi-arrow-down-circle"></i> Deposit
+                    <i class="bi bi-plus-circle"></i> Add Money
                   </button>
                 </li>
                 <li class="nav-item">
@@ -157,17 +157,30 @@
 
               <div id="action-alert" class="d-none mb-3"></div>
 
-              <!-- Deposit Form -->
+              <!-- Add Money / Payment Form -->
               <form id="deposit-form">
+                <div class="mb-3">
+                  <label class="form-label">Payment Method</label>
+                  <div class="d-flex gap-2 flex-wrap">
+                    <button type="button" class="btn btn-outline-primary btn-sm payment-method-btn active" data-method="UPI">
+                      <i class="bi bi-phone"></i> UPI
+                    </button>
+                    <button type="button" class="btn btn-outline-primary btn-sm payment-method-btn" data-method="CARD">
+                      <i class="bi bi-credit-card"></i> Card
+                    </button>
+                    <button type="button" class="btn btn-outline-primary btn-sm payment-method-btn" data-method="NET_BANKING">
+                      <i class="bi bi-bank"></i> Net Banking
+                    </button>
+                  </div>
+                  <input type="hidden" id="payment-method" value="UPI" />
+                </div>
                 <div class="mb-3">
                   <label class="form-label">Amount</label>
                   <input type="number" id="deposit-amount" class="form-control" min="0.01" step="0.01" required />
                 </div>
-                <div class="mb-3">
-                  <label class="form-label">Description <span class="text-muted">(optional)</span></label>
-                  <input type="text" id="deposit-desc" class="form-control" />
-                </div>
-                <button type="submit" class="btn btn-success w-100">Deposit</button>
+                <button type="submit" class="btn btn-success w-100">
+                  <i class="bi bi-lock"></i> Proceed to Pay
+                </button>
               </form>
 
               <!-- Withdraw Form -->
@@ -216,7 +229,7 @@
 
           <!-- Filters -->
           <div class="row g-2 mb-3">
-            <div class="col-sm-4">
+            <div class="col-sm-3">
               <select id="filter-status" class="form-select form-select-sm">
                 <option value="">All Statuses</option>
                 <option value="PENDING">Pending</option>
@@ -225,9 +238,17 @@
               </select>
             </div>
             <div class="col-sm-3">
+              <select id="filter-type" class="form-select form-select-sm">
+                <option value="">All Types</option>
+                <option value="DEPOSIT">Deposit</option>
+                <option value="WITHDRAWAL">Withdrawal</option>
+                <option value="TRANSFER">Transfer</option>
+              </select>
+            </div>
+            <div class="col-sm-2">
               <input type="date" id="filter-from" class="form-control form-control-sm" placeholder="From" />
             </div>
-            <div class="col-sm-3">
+            <div class="col-sm-2">
               <input type="date" id="filter-to" class="form-control form-control-sm" placeholder="To" />
             </div>
             <div class="col-sm-2">
@@ -243,13 +264,14 @@
                   <th>Date</th>
                   <th>Type</th>
                   <th>Status</th>
+                  <th>Method</th>
                   <th class="text-end">Amount</th>
                   <th>Currency</th>
                   <th>Description</th>
                 </tr>
               </thead>
               <tbody id="tx-table-body">
-                <tr><td colspan="6" class="text-center text-muted py-3">Loading…</td></tr>
+                <tr><td colspan="7" class="text-center text-muted py-3">Loading…</td></tr>
               </tbody>
             </table>
           </div>
@@ -267,6 +289,42 @@
             </div>
           </div>
         </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Payment Gateway Modal -->
+<div class="modal fade" id="payment-modal" tabindex="-1" data-bs-backdrop="static" data-bs-keyboard="false">
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content">
+      <div class="modal-header">
+        <div>
+          <h5 class="modal-title mb-0"><i class="bi bi-shield-lock"></i> Payment Gateway</h5>
+          <small class="text-muted">Simulation</small>
+        </div>
+      </div>
+      <div class="modal-body">
+        <div class="text-center mb-4">
+          <div class="mb-2">
+            <span class="badge bg-primary fs-6" id="modal-method"></span>
+          </div>
+          <div class="display-6 fw-bold mb-1" id="modal-amount"></div>
+          <div class="text-muted small">Ref: <span id="modal-reference" class="font-monospace"></span></div>
+        </div>
+        <div class="mb-3">
+          <label class="form-label">Gateway Payment ID <span class="text-muted">(simulated)</span></label>
+          <input type="text" id="gateway-payment-id" class="form-control font-monospace" placeholder="e.g. GW-TXN-123456" />
+        </div>
+        <div id="payment-modal-alert" class="d-none"></div>
+      </div>
+      <div class="modal-footer justify-content-between">
+        <button class="btn btn-outline-danger" id="simulate-fail-btn">
+          <i class="bi bi-x-circle"></i> Simulate Failure
+        </button>
+        <button class="btn btn-success" id="simulate-success-btn">
+          <i class="bi bi-check-circle"></i> Confirm Payment
+        </button>
       </div>
     </div>
   </div>

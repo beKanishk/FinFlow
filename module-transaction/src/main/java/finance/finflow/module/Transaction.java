@@ -45,4 +45,8 @@ public class Transaction extends AbstractBaseEntity {
     private String currency;
 
     private String description;
+
+    @Enumerated(EnumType.STRING)
+    @Column(name = "payment_method")
+    private PaymentMethod paymentMethod;
 }

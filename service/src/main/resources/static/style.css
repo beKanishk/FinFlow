@@ -55,6 +55,11 @@ body {
   border-radius: 0;
 }
 
+.payment-method-btn.active {
+  background-color: #0d6efd;
+  color: #fff;
+}
+
 /* ── Dark mode ────────────────────────────────────────────── */
 /* Bootstrap handles most dark mode via data-bs-theme="dark" on <html>.
    Only override things Bootstrap doesn't cover. */

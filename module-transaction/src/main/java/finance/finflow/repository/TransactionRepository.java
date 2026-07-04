@@ -21,6 +21,7 @@ public interface TransactionRepository extends JpaRepository<Transaction, Long> 
             LEFT JOIN wallets dw ON t.destination_wallet_id = dw.id
             WHERE (sw.wallet_id = CAST(:walletId AS uuid) OR dw.wallet_id = CAST(:walletId AS uuid))
             AND (:status IS NULL OR t.status = :status)
+            AND (:type IS NULL OR t.type = :type)
             AND (CAST(:fromDate AS timestamptz) IS NULL OR t.created_at >= CAST(:fromDate AS timestamptz))
             AND (CAST(:toDate AS timestamptz) IS NULL OR t.created_at <= CAST(:toDate AS timestamptz))
             ORDER BY t.created_at DESC
@@ -31,12 +32,14 @@ public interface TransactionRepository extends JpaRepository<Transaction, Long> 
             LEFT JOIN wallets dw ON t.destination_wallet_id = dw.id
             WHERE (sw.wallet_id = CAST(:walletId AS uuid) OR dw.wallet_id = CAST(:walletId AS uuid))
             AND (:status IS NULL OR t.status = :status)
+            AND (:type IS NULL OR t.type = :type)
             AND (CAST(:fromDate AS timestamptz) IS NULL OR t.created_at >= CAST(:fromDate AS timestamptz))
             AND (CAST(:toDate AS timestamptz) IS NULL OR t.created_at <= CAST(:toDate AS timestamptz))
             """,
             nativeQuery = true)
     Page<Transaction> findByWallet(@Param("walletId") String walletId,
                                    @Param("status") String status,
+                                   @Param("type") String type,
                                    @Param("fromDate") Instant fromDate,
                                    @Param("toDate") Instant toDate,
                                    Pageable pageable);
@@ -49,6 +52,7 @@ public interface TransactionRepository extends JpaRepository<Transaction, Long> 
             LEFT JOIN users du ON dw.user_id = du.id
             WHERE (su.id = :userId OR du.id = :userId)
             AND (:status IS NULL OR t.status = :status)
+            AND (:type IS NULL OR t.type = :type)
             AND (CAST(:fromDate AS timestamptz) IS NULL OR t.created_at >= CAST(:fromDate AS timestamptz))
             AND (CAST(:toDate AS timestamptz) IS NULL OR t.created_at <= CAST(:toDate AS timestamptz))
             ORDER BY t.created_at DESC
@@ -61,12 +65,14 @@ public interface TransactionRepository extends JpaRepository<Transaction, Long> 
             LEFT JOIN users du ON dw.user_id = du.id
             WHERE (su.id = :userId OR du.id = :userId)
             AND (:status IS NULL OR t.status = :status)
+            AND (:type IS NULL OR t.type = :type)
             AND (CAST(:fromDate AS timestamptz) IS NULL OR t.created_at >= CAST(:fromDate AS timestamptz))
             AND (CAST(:toDate AS timestamptz) IS NULL OR t.created_at <= CAST(:toDate AS timestamptz))
             """,
             nativeQuery = true)
     Page<Transaction> findByUser(@Param("userId") Long userId,
                                  @Param("status") String status,
+                                 @Param("type") String type,
                                  @Param("fromDate") Instant fromDate,
                                  @Param("toDate") Instant toDate,
                                  Pageable pageable);

@@ -21,7 +21,7 @@ public class IdempotencyRecord {
     @Column(name = "request_hash", nullable = false)
     private String requestHash;
 
-    @Column(name = "transaction_id", nullable = false)
+    @Column(name = "transaction_id")
     private UUID transactionId;
 
     @Column(columnDefinition = "TEXT")

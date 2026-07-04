@@ -1,5 +1,6 @@
 package finance.finflow.dto;
 
+import finance.finflow.module.PaymentMethod;
 import finance.finflow.module.TransactionStatus;
 import finance.finflow.module.TransactionType;
 import lombok.AllArgsConstructor;
@@ -26,6 +27,6 @@ public class TransactionHistoryDTO {
     private BigDecimal amount;
     private String currency;
     private String description;
-
+    private PaymentMethod paymentMethod;
     private Instant createdAt;
 }

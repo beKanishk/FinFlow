@@ -1,10 +1,11 @@
 'use strict';
 
 // ─── State ───────────────────────────────────────────────────────────────────
-let token    = localStorage.getItem('ff_token');
-let walletId = localStorage.getItem('ff_wallet_id');
-let txPage   = 0;
-let txTotal  = 0;
+let token          = localStorage.getItem('ff_token');
+let walletId       = localStorage.getItem('ff_wallet_id');
+let txPage         = 0;
+let txTotal        = 0;
+let pendingPayment = null;   // { paymentOrderId, paymentReference, amount, paymentMethod }
 const TX_PAGE_SIZE = 10;
 
 // ─── API Helper ──────────────────────────────────────────────────────────────
@@ -135,17 +136,52 @@ function renderWallet(wallet) {
   unfreezeBtn.classList.toggle('d-none', !frozen);
 }
 
-// ─── Transactions ─────────────────────────────────────────────────────────────
-async function deposit(amount, description) {
-  const result = await api(`/wallets/${walletId}/deposit`, {
+// ─── Payment ──────────────────────────────────────────────────────────────────
+const paymentModal = new bootstrap.Modal(document.getElementById('payment-modal'));
+
+async function initiatePayment(amount, paymentMethod) {
+  const result = await api('/payments/initiate', {
     method: 'POST',
     headers: { 'Idempotency-Key': crypto.randomUUID() },
-    body: { amount: Number(amount), description: description || undefined },
+    body: { walletId, amount: Number(amount), paymentMethod },
   });
-  await refreshWallet();
-  await loadTransactions();
-  return result;
+  pendingPayment = result;
+
+  document.getElementById('modal-method').textContent    = paymentMethod.replace('_', ' ');
+  document.getElementById('modal-amount').textContent    = `${Number(amount).toFixed(2)}`;
+  document.getElementById('modal-reference').textContent = result.paymentReference;
+  document.getElementById('gateway-payment-id').value    = 'GW-TXN-' + Math.random().toString(36).substring(2, 10).toUpperCase();
+  document.getElementById('payment-modal-alert').className = 'd-none';
+
+  paymentModal.show();
 }
+
+async function simulateWebhook(status) {
+  if (!pendingPayment) return;
+  const gatewayPaymentId = document.getElementById('gateway-payment-id').value || undefined;
+  try {
+    await api('/payments/webhook', {
+      method: 'POST',
+      body: { paymentOrderId: pendingPayment.paymentOrderId, status, gatewayPaymentId },
+    });
+    paymentModal.hide();
+    pendingPayment = null;
+    await refreshWallet();
+    await loadTransactions();
+    showAlert('action-alert', 'Payment successful — money added to wallet', 'success');
+  } catch (err) {
+    const el = document.getElementById('payment-modal-alert');
+    el.className = 'alert alert-danger';
+    el.textContent = err.message;
+    if (status === 'FAILED') {
+      paymentModal.hide();
+      pendingPayment = null;
+      showAlert('action-alert', 'Payment failed', 'danger');
+    }
+  }
+}
+
+// ─── Transactions ─────────────────────────────────────────────────────────────
 
 async function withdraw(amount, description) {
   const result = await api(`/wallets/${walletId}/withdraw`, {
@@ -172,11 +208,13 @@ async function transfer(destinationUsername, amount, description) {
 async function loadTransactions(page = 0) {
   txPage = page;
   const status = document.getElementById('filter-status').value || undefined;
+  const type   = document.getElementById('filter-type').value   || undefined;
   const from   = document.getElementById('filter-from').value   || undefined;
   const to     = document.getElementById('filter-to').value     || undefined;
 
   const filters = {};
   if (status) filters.status = status;
+  if (type)   filters.type   = type;
   if (from)   filters.from   = from;
   if (to)     filters.to     = to;
 
@@ -189,7 +227,7 @@ async function loadTransactions(page = 0) {
     renderTransactions(result);
   } catch (e) {
     document.getElementById('tx-table-body').innerHTML =
-      `<tr><td colspan="6" class="text-center text-danger">${e.message}</td></tr>`;
+      `<tr><td colspan="7" class="text-center text-danger">${e.message}</td></tr>`;
   }
 }
 
@@ -197,7 +235,7 @@ function renderTransactions(data) {
   const tbody = document.getElementById('tx-table-body');
 
   if (!data.content || data.content.length === 0) {
-    tbody.innerHTML = '<tr><td colspan="6" class="text-center text-muted py-3">No transactions found</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="7" class="text-center text-muted py-3">No transactions found</td></tr>';
   } else {
     tbody.innerHTML = data.content.map(tx => {
       const date   = tx.createdAt ? new Date(tx.createdAt).toLocaleString() : '—';
@@ -209,11 +247,14 @@ function renderTransactions(data) {
         if (tx.sourceUsername)      parties += `<span class="text-muted small ms-1">← ${tx.sourceUsername}</span>`;
         if (tx.destinationUsername) parties += `<span class="text-muted small ms-1">→ ${tx.destinationUsername}</span>`;
       }
+      const method = tx.paymentMethod
+        ? `<span class="badge bg-secondary">${tx.paymentMethod.replace('_', ' ')}</span>` : '—';
       return `
         <tr>
           <td class="text-nowrap small">${date}</td>
           <td>${typeBadge}${parties}</td>
           <td>${statusBadge}</td>
+          <td>${method}</td>
           <td class="text-end fw-semibold">${amount}</td>
           <td>${tx.currency}</td>
           <td class="text-muted small">${tx.description || '—'}</td>
@@ -322,20 +363,33 @@ document.querySelectorAll('#actionTabs .nav-link').forEach(btn => {
   });
 });
 
+document.querySelectorAll('.payment-method-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('.payment-method-btn').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    document.getElementById('payment-method').value = btn.dataset.method;
+  });
+});
+
 document.getElementById('deposit-form').addEventListener('submit', async e => {
   e.preventDefault();
   clearAlert('action-alert');
   try {
-    await deposit(
+    await initiatePayment(
       document.getElementById('deposit-amount').value,
-      document.getElementById('deposit-desc').value,
+      document.getElementById('payment-method').value,
     );
-    showAlert('action-alert', 'Deposit successful', 'success');
     e.target.reset();
+    document.querySelectorAll('.payment-method-btn').forEach(b => b.classList.remove('active'));
+    document.querySelector('.payment-method-btn[data-method="UPI"]').classList.add('active');
+    document.getElementById('payment-method').value = 'UPI';
   } catch (err) {
     showAlert('action-alert', err.message);
   }
 });
+
+document.getElementById('simulate-success-btn').addEventListener('click', () => simulateWebhook('SUCCESS'));
+document.getElementById('simulate-fail-btn').addEventListener('click',    () => simulateWebhook('FAILED'));
 
 document.getElementById('withdraw-form').addEventListener('submit', async e => {
   e.preventDefault();
