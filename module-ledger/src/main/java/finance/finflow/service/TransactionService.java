@@ -34,12 +34,15 @@ public class TransactionService {
     private static final String FIELD_FROM   = "from";
     private static final String FIELD_TO     = "to";
 
+    private static final String WALLET_KEY_PREFIX = "wallet:";
+
     private final WalletRepository walletRepository;
     private final UserRepository userRepository;
     private final TransactionRepository transactionRepository;
     private final LedgerEntryRepository ledgerEntryRepository;
     private final TransactionStatusService transactionStatusService;
     private final IdempotencyService idempotencyService;
+    private final org.springframework.data.redis.core.StringRedisTemplate redisTemplate;
 
     @Transactional
     public TransactionResponseDTO deposit(UUID walletId, BigDecimal amount, String description, String idempotencyKey) {
@@ -85,6 +88,7 @@ public class TransactionService {
 
             wallet.setAmount(balanceAfter);
             wallet = walletRepository.save(wallet);
+            evictWallet(wallet.getWalletId());
 
             transaction.setStatus(TransactionStatus.COMPLETED);
             transaction = transactionRepository.save(transaction);
@@ -140,6 +144,7 @@ public class TransactionService {
 
             wallet.setAmount(balanceAfter);
             wallet = walletRepository.save(wallet);
+            evictWallet(wallet.getWalletId());
 
             transaction.setStatus(TransactionStatus.COMPLETED);
             transaction = transactionRepository.save(transaction);
@@ -224,9 +229,11 @@ public class TransactionService {
 
             sourceWallet.setAmount(sourceBalanceAfter);
             sourceWallet = walletRepository.save(sourceWallet);
+            evictWallet(sourceWallet.getWalletId());
 
             destinationWallet.setAmount(destinationBalanceAfter);
             destinationWallet = walletRepository.save(destinationWallet);
+            evictWallet(destinationWallet.getWalletId());
 
             transaction.setStatus(TransactionStatus.COMPLETED);
             transaction = transactionRepository.save(transaction);
@@ -328,6 +335,10 @@ public class TransactionService {
                 wallet.getAmount(),
                 transaction.getDescription()
         );
+    }
+
+    private void evictWallet(UUID walletId) {
+        redisTemplate.delete(WALLET_KEY_PREFIX + walletId);
     }
 
     private String hash(UUID walletId, BigDecimal amount, String description) {
