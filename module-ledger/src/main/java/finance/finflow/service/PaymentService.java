@@ -1,14 +1,11 @@
 package finance.finflow.service;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
 import finance.finflow.dto.PaymentInitiateResponse;
 import finance.finflow.dto.TransactionResponseDTO;
 import finance.finflow.module.*;
-import finance.finflow.repository.IdempotencyRecordRepository;
 import finance.finflow.repository.PaymentOrderRepository;
 import finance.finflow.repository.WalletRepository;
 import lombok.RequiredArgsConstructor;
-import lombok.SneakyThrows;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -32,15 +29,14 @@ public class PaymentService {
 
     private final PaymentOrderRepository paymentOrderRepository;
     private final WalletRepository walletRepository;
-    private final IdempotencyRecordRepository idempotencyRecordRepository;
     private final TransactionService transactionService;
     private final TransactionStatusService transactionStatusService;
-    private final ObjectMapper objectMapper;
+    private final IdempotencyService idempotencyService;
 
     @Transactional
     public PaymentInitiateResponse initiate(UUID walletId, BigDecimal amount, PaymentMethod paymentMethod, String idempotencyKey) {
         String requestHash = hash(walletId + ":" + amount + ":" + paymentMethod);
-        Optional<PaymentInitiateResponse> existing = checkIdempotency(idempotencyKey, requestHash, PaymentInitiateResponse.class);
+        Optional<PaymentInitiateResponse> existing = idempotencyService.check(idempotencyKey, requestHash, PaymentInitiateResponse.class);
         if (existing.isPresent()) {
             return existing.get();
         }
@@ -68,7 +64,7 @@ public class PaymentService {
 
         PaymentInitiateResponse response = new PaymentInitiateResponse(
                 order.getPaymentOrderId(), order.getPaymentReference(), amount, paymentMethod);
-        saveIdempotencyRecord(idempotencyKey, requestHash, order.getPaymentOrderId(), response);
+        idempotencyService.save(idempotencyKey, requestHash, order.getPaymentOrderId(), response);
         return response;
     }
 
@@ -109,31 +105,6 @@ public class PaymentService {
                 paymentOrderId.toString(),
                 order.getPaymentMethod()
         );
-    }
-
-    private <T> Optional<T> checkIdempotency(String key, String requestHash, Class<T> responseType) {
-        return idempotencyRecordRepository.findByIdempotencyKey(key)
-                .map(existing -> {
-                    if (!existing.getRequestHash().equals(requestHash)) {
-                        throw new IllegalStateException("Idempotency key reused with a different request: " + key);
-                    }
-                    return readResponse(existing.getResponse(), responseType);
-                });
-    }
-
-    @SneakyThrows
-    private void saveIdempotencyRecord(String key, String requestHash, UUID paymentOrderId, Object response) {
-        IdempotencyRecord record = new IdempotencyRecord();
-        record.setIdempotencyKey(key);
-        record.setRequestHash(requestHash);
-        record.setTransactionId(paymentOrderId);
-        record.setResponse(objectMapper.writeValueAsString(response));
-        idempotencyRecordRepository.save(record);
-    }
-
-    @SneakyThrows
-    private <T> T readResponse(String json, Class<T> type) {
-        return objectMapper.readValue(json, type);
     }
 
     private String hash(String raw) {

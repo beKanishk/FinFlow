@@ -1,6 +1,5 @@
 package finance.finflow.service;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
 import finance.finflow.dto.PagedResponse;
 import finance.finflow.dto.SearchRequest;
 import finance.finflow.dto.TransactionHistoryDTO;
@@ -8,13 +7,11 @@ import finance.finflow.dto.TransactionResponseDTO;
 import finance.finflow.dto.TransferResponseDTO;
 import finance.finflow.module.*;
 import finance.finflow.module.PaymentMethod;
-import finance.finflow.repository.IdempotencyRecordRepository;
 import finance.finflow.repository.LedgerEntryRepository;
 import finance.finflow.repository.TransactionRepository;
 import finance.finflow.repository.UserRepository;
 import finance.finflow.repository.WalletRepository;
 import lombok.RequiredArgsConstructor;
-import lombok.SneakyThrows;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -41,9 +38,8 @@ public class TransactionService {
     private final UserRepository userRepository;
     private final TransactionRepository transactionRepository;
     private final LedgerEntryRepository ledgerEntryRepository;
-    private final IdempotencyRecordRepository idempotencyRecordRepository;
     private final TransactionStatusService transactionStatusService;
-    private final ObjectMapper objectMapper = new ObjectMapper();
+    private final IdempotencyService idempotencyService;
 
     @Transactional
     public TransactionResponseDTO deposit(UUID walletId, BigDecimal amount, String description, String idempotencyKey) {
@@ -53,7 +49,7 @@ public class TransactionService {
     @Transactional
     public TransactionResponseDTO deposit(UUID walletId, BigDecimal amount, String description, String idempotencyKey, PaymentMethod paymentMethod) {
         String requestHash = hash(walletId, amount, description);
-        Optional<TransactionResponseDTO> existing = checkIdempotency(idempotencyKey, requestHash, TransactionResponseDTO.class);
+        Optional<TransactionResponseDTO> existing = idempotencyService.check(idempotencyKey, requestHash, TransactionResponseDTO.class);
         if (existing.isPresent()) {
             return existing.get();
         }
@@ -94,7 +90,7 @@ public class TransactionService {
             transaction = transactionRepository.save(transaction);
 
             TransactionResponseDTO response = toDto(transaction, wallet);
-            saveIdempotencyRecord(idempotencyKey, requestHash, transaction.getTransactionId(), response);
+            idempotencyService.save(idempotencyKey, requestHash, transaction.getTransactionId(), response);
             return response;
         } catch (Exception e) {
             transactionStatusService.markFailed(transaction);
@@ -105,7 +101,7 @@ public class TransactionService {
     @Transactional
     public TransactionResponseDTO withdraw(UUID walletId, BigDecimal amount, String description, String idempotencyKey) {
         String requestHash = hash(walletId, amount, description);
-        Optional<TransactionResponseDTO> existing = checkIdempotency(idempotencyKey, requestHash, TransactionResponseDTO.class);
+        Optional<TransactionResponseDTO> existing = idempotencyService.check(idempotencyKey, requestHash, TransactionResponseDTO.class);
         if (existing.isPresent()) {
             return existing.get();
         }
@@ -149,7 +145,7 @@ public class TransactionService {
             transaction = transactionRepository.save(transaction);
 
             TransactionResponseDTO response = toDto(transaction, wallet);
-            saveIdempotencyRecord(idempotencyKey, requestHash, transaction.getTransactionId(), response);
+            idempotencyService.save(idempotencyKey, requestHash, transaction.getTransactionId(), response);
             return response;
         } catch (Exception e) {
             transactionStatusService.markFailed(transaction);
@@ -171,7 +167,7 @@ public class TransactionService {
         }
 
         String requestHash = hash(sourceWalletId, destinationWalletId, amount, description);
-        Optional<TransferResponseDTO> existing = checkIdempotency(idempotencyKey, requestHash, TransferResponseDTO.class);
+        Optional<TransferResponseDTO> existing = idempotencyService.check(idempotencyKey, requestHash, TransferResponseDTO.class);
         if (existing.isPresent()) {
             return existing.get();
         }
@@ -248,7 +244,7 @@ public class TransactionService {
                     destinationWallet.getAmount(),
                     transaction.getDescription()
             );
-            saveIdempotencyRecord(idempotencyKey, requestHash, transaction.getTransactionId(), response);
+            idempotencyService.save(idempotencyKey, requestHash, transaction.getTransactionId(), response);
             return response;
         } catch (Exception e) {
             transactionStatusService.markFailed(transaction);
@@ -318,31 +314,6 @@ public class TransactionService {
                 t.getPaymentMethod(),
                 t.getCreatedAt()
         );
-    }
-
-    private <T> Optional<T> checkIdempotency(String key, String requestHash, Class<T> responseType) {
-        return idempotencyRecordRepository.findByIdempotencyKey(key)
-                .map(existing -> {
-                    if (!existing.getRequestHash().equals(requestHash)) {
-                        throw new IllegalStateException("Idempotency key reused with a different request: " + key);
-                    }
-                    return readResponse(existing.getResponse(), responseType);
-                });
-    }
-
-    @SneakyThrows
-    private void saveIdempotencyRecord(String key, String requestHash, UUID transactionId, Object response) {
-        IdempotencyRecord record = new IdempotencyRecord();
-        record.setIdempotencyKey(key);
-        record.setRequestHash(requestHash);
-        record.setTransactionId(transactionId);
-        record.setResponse(objectMapper.writeValueAsString(response));
-        idempotencyRecordRepository.save(record);
-    }
-
-    @SneakyThrows
-    private <T> T readResponse(String json, Class<T> type) {
-        return objectMapper.readValue(json, type);
     }
 
     private TransactionResponseDTO toDto(Transaction transaction, Wallet wallet) {
