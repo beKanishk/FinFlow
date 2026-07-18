@@ -19,6 +19,11 @@ async function api(path, options = {}) {
     body: options.body ? JSON.stringify(options.body) : undefined,
   });
 
+  if (res.status === 401 && path !== '/auth/token') {
+    logout('Session expired. Please log in again.');
+    throw new Error('Session expired. Please log in again.');
+  }
+
   // /auth/token returns a plain JWT string, not JSON
   if (path === '/auth/token') {
     if (!res.ok) throw new Error('Invalid credentials');
@@ -66,11 +71,12 @@ async function register(username, password, name, email) {
   await login(username, password);
 }
 
-function logout() {
+function logout(message) {
   token = null;
   walletId = null;
   localStorage.clear();
   showSection('auth');
+  if (message) showAlert('auth-alert', message, 'warning');
 }
 
 // ─── Dashboard entry ─────────────────────────────────────────────────────────
