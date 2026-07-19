@@ -3,8 +3,8 @@ package finance.finflow.controller;
 import finance.finflow.dto.ApiResponse;
 import finance.finflow.dto.PaymentInitiateRequest;
 import finance.finflow.dto.PaymentInitiateResponse;
+import finance.finflow.dto.PaymentWebhookAckResponse;
 import finance.finflow.dto.PaymentWebhookRequest;
-import finance.finflow.dto.TransactionResponseDTO;
 import finance.finflow.service.PaymentService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
@@ -24,7 +24,7 @@ public class PaymentController {
     }
 
     @PostMapping("/webhook")
-    public ApiResponse<TransactionResponseDTO> webhook(@Valid @RequestBody PaymentWebhookRequest request) {
+    public ApiResponse<PaymentWebhookAckResponse> webhook(@Valid @RequestBody PaymentWebhookRequest request) {
         return ApiResponse.ok(paymentService.handleWebhook(request.getPaymentOrderId(), request.getStatus(), request.getGatewayPaymentId()));
     }
 }

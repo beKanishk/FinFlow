@@ -166,24 +166,27 @@ async function simulateWebhook(status) {
   if (!pendingPayment) return;
   const gatewayPaymentId = document.getElementById('gateway-payment-id').value || undefined;
   try {
-    await api('/payments/webhook', {
+    const ack = await api('/payments/webhook', {
       method: 'POST',
       body: { paymentOrderId: pendingPayment.paymentOrderId, status, gatewayPaymentId },
     });
     paymentModal.hide();
     pendingPayment = null;
+
+    if (ack.status === 'FAILED') {
+      showAlert('action-alert', 'Payment failed', 'danger');
+      return;
+    }
+
+    showAlert('action-alert', 'Payment received — processing', 'success');
+    // deposit happens asynchronously via Kafka, give the consumer a moment before refreshing
+    await new Promise(resolve => setTimeout(resolve, 1000));
     await refreshWallet();
     await loadTransactions();
-    showAlert('action-alert', 'Payment successful — money added to wallet', 'success');
   } catch (err) {
     const el = document.getElementById('payment-modal-alert');
     el.className = 'alert alert-danger';
     el.textContent = err.message;
-    if (status === 'FAILED') {
-      paymentModal.hide();
-      pendingPayment = null;
-      showAlert('action-alert', 'Payment failed', 'danger');
-    }
   }
 }
 
@@ -360,6 +363,12 @@ document.getElementById('freeze-btn').addEventListener('click', async () => {
 });
 document.getElementById('unfreeze-btn').addEventListener('click', async () => {
   try { await unfreezeWallet(); } catch (err) { showAlert('dashboard-alert', err.message); }
+});
+document.getElementById('refresh-wallet-btn').addEventListener('click', async () => {
+  const btn = document.getElementById('refresh-wallet-btn');
+  btn.disabled = true;
+  try { await refreshWallet(); } catch (err) { showAlert('dashboard-alert', err.message); }
+  finally { btn.disabled = false; }
 });
 
 document.querySelectorAll('#actionTabs .nav-link').forEach(btn => {

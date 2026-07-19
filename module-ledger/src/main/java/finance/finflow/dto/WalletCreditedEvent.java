@@ -1,21 +1,21 @@
 package finance.finflow.dto;
 
-import finance.finflow.module.WalletStatus;
 import lombok.AllArgsConstructor;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 
 import java.math.BigDecimal;
+import java.time.Instant;
 import java.util.UUID;
 
 @Data
 @NoArgsConstructor
 @AllArgsConstructor
-public class WalletResponseDTO {
+public class WalletCreditedEvent {
+
+    private UUID paymentOrderId;
     private UUID walletId;
-    private String username;
+    private UUID transactionId;
     private BigDecimal amount;
-    private String currency;
-    private WalletStatus status;
-    private boolean isFreeze;
+    private Instant creditedAt;
 }

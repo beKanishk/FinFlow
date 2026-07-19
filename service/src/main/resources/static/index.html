@@ -117,7 +117,12 @@
             <div class="card-body">
               <div class="d-flex justify-content-between align-items-start mb-3">
                 <h5 class="card-title mb-0">My Wallet</h5>
-                <span id="wallet-status-badge" class="badge"></span>
+                <div class="d-flex align-items-center gap-2">
+                  <span id="wallet-status-badge" class="badge"></span>
+                  <button class="btn btn-outline-secondary btn-sm" id="refresh-wallet-btn" title="Refresh wallet">
+                    <i class="bi bi-arrow-clockwise"></i>
+                  </button>
+                </div>
               </div>
               <div class="balance-display mb-1" id="wallet-balance">—</div>
               <div class="text-muted small mb-4" id="wallet-currency-display"></div>

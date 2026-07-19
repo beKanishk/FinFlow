@@ -1,6 +1,6 @@
 package finance.finflow.dto;
 
-import finance.finflow.module.WalletStatus;
+import finance.finflow.module.PaymentMethod;
 import lombok.AllArgsConstructor;
 import lombok.Data;
 import lombok.NoArgsConstructor;
@@ -11,11 +11,12 @@ import java.util.UUID;
 @Data
 @NoArgsConstructor
 @AllArgsConstructor
-public class WalletResponseDTO {
+public class PaymentFailedEvent {
+
+    private UUID paymentOrderId;
     private UUID walletId;
-    private String username;
     private BigDecimal amount;
-    private String currency;
-    private WalletStatus status;
-    private boolean isFreeze;
+    private String paymentReference;
+    private PaymentMethod paymentMethod;
+    private String gatewayPaymentId;
 }

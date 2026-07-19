@@ -2,8 +2,9 @@ package finance.finflow.service;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import finance.finflow.dto.PaymentCompletedEvent;
+import finance.finflow.dto.PaymentFailedEvent;
 import finance.finflow.dto.PaymentInitiateResponse;
-import finance.finflow.dto.TransactionResponseDTO;
+import finance.finflow.dto.PaymentWebhookAckResponse;
 import finance.finflow.module.*;
 import finance.finflow.repository.PaymentOrderRepository;
 import finance.finflow.repository.WalletRepository;
@@ -16,7 +17,6 @@ import org.springframework.transaction.annotation.Transactional;
 import java.math.BigDecimal;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
-import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
@@ -33,12 +33,11 @@ public class PaymentService {
     private static final DateTimeFormatter DATE_FORMAT = DateTimeFormatter.ofPattern("yyyyMMdd");
     private static final ZoneId IST = ZoneId.of("Asia/Kolkata");
 
-    private static final String PAYMENT_EVENTS_TOPIC = "payment-events";
+    private static final String PAYMENT_COMPLETED_TOPIC = "payment-completed";
+    private static final String PAYMENT_FAILED_TOPIC = "payment-failed";
 
     private final PaymentOrderRepository paymentOrderRepository;
     private final WalletRepository walletRepository;
-    private final TransactionService transactionService;
-    private final TransactionStatusService transactionStatusService;
     private final IdempotencyService idempotencyService;
     private final KafkaTemplate<String, String> kafkaTemplate;
     private final com.fasterxml.jackson.databind.ObjectMapper objectMapper;
@@ -79,18 +78,18 @@ public class PaymentService {
     }
 
     @Transactional
-    public TransactionResponseDTO handleWebhook(UUID paymentOrderId, PaymentStatus status, String gatewayPaymentId) {
+    public PaymentWebhookAckResponse handleWebhook(UUID paymentOrderId, PaymentStatus status, String gatewayPaymentId) {
         PaymentOrder order = findPendingOrder(paymentOrderId);
 
         updatePaymentOrder(order, status, gatewayPaymentId);
 
-        recordFailure(order);
+        if (order.getStatus() == PaymentStatus.FAILED) {
+            publishPaymentFailedEvent(order, gatewayPaymentId);
+        } else {
+            publishPaymentCompletedEvent(order);
+        }
 
-        TransactionResponseDTO result = depositToWallet(order);
-
-        publishPaymentCompletedEvent(order);
-
-        return result;
+        return new PaymentWebhookAckResponse(order.getPaymentOrderId(), order.getPaymentReference(), order.getStatus());
     }
 
     private PaymentOrder findPendingOrder(UUID paymentOrderId) {
@@ -108,31 +107,16 @@ public class PaymentService {
         paymentOrderRepository.save(order);
     }
 
-    private void recordFailure(PaymentOrder order) {
-        if (order.getStatus() != PaymentStatus.FAILED) return;
-
-        Transaction failed = new Transaction();
-        failed.setType(TransactionType.DEPOSIT);
-        failed.setDestinationWallet(order.getWallet());
-        failed.setAmount(order.getAmount());
-        failed.setCurrency(order.getWallet().getCurrency());
-        failed.setPaymentMethod(order.getPaymentMethod());
-        failed.setDescription("Payment failed | Ref: " + order.getPaymentReference());
-        failed = transactionStatusService.savePending(failed);
-        transactionStatusService.markFailed(failed);
-
-        throw new IllegalStateException("Payment failed for order: " + order.getPaymentOrderId());
-    }
-
     private void publishPaymentCompletedEvent(PaymentOrder order) {
         PaymentCompletedEvent event = new PaymentCompletedEvent(
                 order.getPaymentOrderId(),
                 order.getWallet().getWalletId(),
                 order.getAmount(),
-                Instant.now()
+                order.getPaymentReference(),
+                order.getPaymentMethod()
         );
         try {
-            kafkaTemplate.send(PAYMENT_EVENTS_TOPIC, event.getPaymentOrderId().toString(), objectMapper.writeValueAsString(event));
+            kafkaTemplate.send(PAYMENT_COMPLETED_TOPIC, event.getPaymentOrderId().toString(), objectMapper.writeValueAsString(event));
         } catch (JsonProcessingException e) {
             throw new RuntimeException(e);
         }
@@ -141,14 +125,23 @@ public class PaymentService {
                 event.getPaymentOrderId(), event.getWalletId(), event.getAmount());
     }
 
-    private TransactionResponseDTO depositToWallet(PaymentOrder order) {
-        return transactionService.deposit(
+    private void publishPaymentFailedEvent(PaymentOrder order, String gatewayPaymentId) {
+        PaymentFailedEvent event = new PaymentFailedEvent(
+                order.getPaymentOrderId(),
                 order.getWallet().getWalletId(),
                 order.getAmount(),
-                "Payment | Ref: " + order.getPaymentReference(),
-                order.getPaymentOrderId().toString(),
-                order.getPaymentMethod()
+                order.getPaymentReference(),
+                order.getPaymentMethod(),
+                gatewayPaymentId
         );
+        try {
+            kafkaTemplate.send(PAYMENT_FAILED_TOPIC, event.getPaymentOrderId().toString(), objectMapper.writeValueAsString(event));
+        } catch (JsonProcessingException e) {
+            throw new RuntimeException(e);
+        }
+
+        log.info("Payment failed event published: paymentOrderId={}, walletId={}, amount={}",
+                event.getPaymentOrderId(), event.getWalletId(), event.getAmount());
     }
 
     private String hash(String raw) {
