@@ -84,7 +84,7 @@ public class PaymentService {
 
         updatePaymentOrder(order, status, gatewayPaymentId);
 
-        assertPaymentSucceeded(order);
+        recordFailure(order);
 
         TransactionResponseDTO result = depositToWallet(order);
 
@@ -108,7 +108,7 @@ public class PaymentService {
         paymentOrderRepository.save(order);
     }
 
-    private void assertPaymentSucceeded(PaymentOrder order) {
+    private void recordFailure(PaymentOrder order) {
         if (order.getStatus() != PaymentStatus.FAILED) return;
 
         Transaction failed = new Transaction();
