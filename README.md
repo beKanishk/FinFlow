@@ -13,6 +13,8 @@ A minimal vanilla JS frontend is included and served directly from the app at `h
 | Language | Java 22 |
 | Framework | Spring Boot 4 |
 | Database | PostgreSQL |
+| Cache | Redis |
+| Messaging | Apache Kafka |
 | Build | Gradle (multi-module) |
 | Auth | JWT (via lib-commons) |
 | Frontend | Vanilla JS + Bootstrap 5 |
@@ -26,6 +28,14 @@ A minimal vanilla JS frontend is included and served directly from the app at `h
 - PostgreSQL running on `localhost:5432`
   - Database: `postgres`
   - Username / Password: `postgres`
+- Redis running on `localhost:6379`
+  ```bash
+  docker run -d -p 6379:6379 --name finflow-redis redis:latest
+  ```
+- Kafka running on `localhost:9092`
+  ```bash
+  docker run -d -p 9092:9092 apache/kafka:latest
+  ```
 - lib-commons installed locally (see below)
 
 ### Install lib-commons
@@ -118,11 +128,13 @@ Returns a plain JWT string (not JSON). Pass it as `Authorization: Bearer <token>
 
 Supported currencies: `INR`, `USD`, `EUR`, `GBP`.
 
+Wallet reads are cached in Redis (`wallet:{walletId}`, 30 min TTL) — a GET populates the cache on a miss, and any mutating operation (deposit, withdraw, transfer, freeze, unfreeze) evicts the affected wallet's cache entry so the next read is fresh.
+
 ---
 
 ### Transactions
 
-All write operations require an `Idempotency-Key` header (UUID). Send the same key to safely retry a request — the original response is returned without creating a duplicate.
+All write operations require an `Idempotency-Key` header (UUID). Send the same key to safely retry a request — the original response is returned without creating a duplicate. Idempotency records are checked against Redis first (fast path) and fall back to Postgres, backfilling Redis on a hit — Redis is a hard dependency here, not a best-effort cache.
 
 | Method | Endpoint | Auth | Description |
 |---|---|---|---|
@@ -183,7 +195,7 @@ Filter options:
 
 ### Payments
 
-The payment flow is two steps: initiate → webhook. This simulates a real payment gateway where money only enters the system after the gateway confirms success.
+The payment flow is two steps: initiate → webhook. This simulates a real payment gateway where money only enters the system after the gateway confirms success. The webhook itself is just an acknowledgement — deposit and failure handling happen asynchronously via Kafka (see [Async Payment Processing](#async-payment-processing-kafka) below).
 
 | Method | Endpoint | Auth | Description |
 |---|---|---|---|
@@ -211,8 +223,38 @@ Response includes a `paymentOrderId` and `paymentReference` (e.g. `PAY-20260704-
 }
 ```
 
-- `SUCCESS` → deposit is created, wallet balance updated
-- `FAILED` → a `FAILED` transaction is recorded for audit, wallet unchanged
+The webhook validates the order, updates its status, and returns an ack immediately — it does not wait for the deposit:
+```json
+{
+  "paymentOrderId": "uuid-from-step-1",
+  "paymentReference": "PAY-20260704-1A2B3C4D",
+  "status": "SUCCESS"
+}
+```
+
+- `SUCCESS` → a `PAYMENT_COMPLETED` event is published; a consumer performs the deposit and credits the wallet moments later
+- `FAILED` → a `PAYMENT_FAILED` event is published; a consumer records a `FAILED` transaction for audit, wallet unchanged
+
+Poll `GET /wallets/{walletId}` or the transaction history endpoints to see the result once the async pipeline finishes processing.
+
+---
+
+## Async Payment Processing (Kafka)
+
+Once the webhook acknowledges a gateway callback, the rest of the flow runs through Kafka topics instead of inline code. Each topic has its own consumer group, so a redelivered message is safe to reprocess — the deposit itself is idempotent (keyed by `paymentOrderId`).
+
+| Topic | Published by | Consumer group | Consumer does |
+|---|---|---|---|
+| `payment-completed` | `/payments/webhook` on `SUCCESS` | `finflow-deposit-group` | Deposits to the wallet, then publishes `wallet-credited` |
+| `payment-failed` | `/payments/webhook` on `FAILED` | `finflow-failure-group` | Records a `FAILED` transaction for audit |
+| `wallet-credited` | deposit consumer, after a successful deposit | `finflow-notify-group` | Logs the credit (no further business logic) |
+
+```
+webhook (SUCCESS) ──▶ payment-completed ──▶ [deposit consumer] ──▶ wallet-credited ──▶ [log consumer]
+webhook (FAILED)  ──▶ payment-failed    ──▶ [failure consumer]
+```
+
+Requires a Kafka broker on `localhost:9092` (see Prerequisites) — the app still starts without one, but the webhook's published events won't be consumed until the broker is reachable.
 
 ---
 
@@ -255,7 +297,7 @@ All timestamps in API responses are in **IST (Asia/Kolkata, UTC+5:30)**:
 Open `http://localhost:8080` in a browser. Features:
 
 - Register / Login
-- Create wallet, freeze/unfreeze
+- Create wallet, freeze/unfreeze, manual refresh button on the wallet card
 - Add money via payment gateway (UPI / Card / Net Banking)
 - Withdraw and transfer
 - Transaction history with filters (status, type, date range)
@@ -263,4 +305,4 @@ Open `http://localhost:8080` in a browser. Features:
 
 ---
 
-The Login request auto-captures the JWT token. Create Wallet auto-captures the wallet ID. Initiate Payment auto-captures the payment order ID — run the webhook request immediately after to simulate gateway confirmation.
+The Login request auto-captures the JWT token. Create Wallet auto-captures the wallet ID. Initiate Payment auto-captures the payment order ID — run the webhook request immediately after to simulate gateway confirmation. Since the deposit now happens asynchronously through Kafka, the UI waits briefly after the webhook ack before refreshing the wallet and transaction list.
