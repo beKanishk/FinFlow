@@ -5,11 +5,11 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import finance.finflow.dto.PaymentCompletedEvent;
 import finance.finflow.dto.TransactionResponseDTO;
 import finance.finflow.dto.WalletCreditedEvent;
+import finance.finflow.service.OutboxEventService;
 import finance.finflow.service.TransactionService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.kafka.annotation.KafkaListener;
-import org.springframework.kafka.core.KafkaTemplate;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -23,7 +23,7 @@ public class PaymentCompletedListener {
     private static final String WALLET_CREDITED_TOPIC = "wallet-credited";
 
     private final TransactionService transactionService;
-    private final KafkaTemplate<String, String> kafkaTemplate;
+    private final OutboxEventService outboxEventService;
     private final ObjectMapper objectMapper;
 
     @Transactional
@@ -36,12 +36,12 @@ public class PaymentCompletedListener {
             throw new RuntimeException(e);
         }
 
-        TransactionResponseDTO result = transactionService.deposit(
+        TransactionResponseDTO result = transactionService.depositExisting(
+                event.getTransactionId(),
                 event.getWalletId(),
                 event.getAmount(),
                 "Payment | Ref: " + event.getPaymentReference(),
-                event.getPaymentOrderId().toString(),
-                event.getPaymentMethod()
+                event.getPaymentOrderId().toString()
         );
 
         publishWalletCreditedEvent(event, result);
@@ -56,12 +56,13 @@ public class PaymentCompletedListener {
                 Instant.now()
         );
         try {
-            kafkaTemplate.send(WALLET_CREDITED_TOPIC, event.getPaymentOrderId().toString(), objectMapper.writeValueAsString(event));
+            outboxEventService.save(event.getPaymentOrderId().toString(), "WALLET_CREDITED",
+                    WALLET_CREDITED_TOPIC, objectMapper.writeValueAsString(event));
         } catch (JsonProcessingException e) {
             throw new RuntimeException(e);
         }
 
-        log.info("Wallet credited event published: paymentOrderId={}, walletId={}, transactionId={}, amount={}",
+        log.info("Wallet credited event queued: paymentOrderId={}, walletId={}, transactionId={}, amount={}",
                 event.getPaymentOrderId(), event.getWalletId(), event.getTransactionId(), event.getAmount());
     }
 }

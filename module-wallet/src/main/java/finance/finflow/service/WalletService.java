@@ -9,6 +9,7 @@ import finance.finflow.repository.UserRepository;
 import finance.finflow.repository.WalletRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.SneakyThrows;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
 
@@ -16,6 +17,7 @@ import java.math.BigDecimal;
 import java.time.Duration;
 import java.util.UUID;
 
+@Slf4j
 @Service
 @RequiredArgsConstructor
 public class WalletService {
@@ -46,6 +48,7 @@ public class WalletService {
 
         WalletResponseDTO dto = toDto(wallet);
         cacheWallet(dto);
+        log.info("Wallet created: walletId={}, username={}, currency={}", wallet.getWalletId(), username, currency);
         return dto;
     }
 
@@ -82,6 +85,7 @@ public class WalletService {
 
         WalletResponseDTO dto = toDto(wallet);
         cacheWallet(dto);
+        log.info("Wallet frozen: walletId={}", walletId);
         return dto;
     }
 
@@ -94,6 +98,7 @@ public class WalletService {
 
         WalletResponseDTO dto = toDto(wallet);
         cacheWallet(dto);
+        log.info("Wallet unfrozen: walletId={}", walletId);
         return dto;
     }
 

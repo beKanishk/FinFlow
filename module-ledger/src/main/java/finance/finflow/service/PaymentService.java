@@ -10,7 +10,6 @@ import finance.finflow.repository.PaymentOrderRepository;
 import finance.finflow.repository.WalletRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.kafka.core.KafkaTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -39,7 +38,8 @@ public class PaymentService {
     private final PaymentOrderRepository paymentOrderRepository;
     private final WalletRepository walletRepository;
     private final IdempotencyService idempotencyService;
-    private final KafkaTemplate<String, String> kafkaTemplate;
+    private final OutboxEventService outboxEventService;
+    private final TransactionStatusService transactionStatusService;
     private final com.fasterxml.jackson.databind.ObjectMapper objectMapper;
 
     @Transactional
@@ -83,13 +83,30 @@ public class PaymentService {
 
         updatePaymentOrder(order, status, gatewayPaymentId);
 
+        // Create the PENDING transaction now, before the outbox even attempts to publish, so it's
+        // visible in transaction history even if the outbox event never gets consumed (e.g. Kafka
+        // stays unreachable past the retry budget) — the listeners resolve this same row later
+        // instead of creating a new one.
         if (order.getStatus() == PaymentStatus.FAILED) {
-            publishPaymentFailedEvent(order, gatewayPaymentId);
+            Transaction transaction = createPendingTransaction(order, "Payment failed | Ref: " + order.getPaymentReference());
+            publishPaymentFailedEvent(order, gatewayPaymentId, transaction.getTransactionId());
         } else {
-            publishPaymentCompletedEvent(order);
+            Transaction transaction = createPendingTransaction(order, "Payment | Ref: " + order.getPaymentReference());
+            publishPaymentCompletedEvent(order, transaction.getTransactionId());
         }
 
         return new PaymentWebhookAckResponse(order.getPaymentOrderId(), order.getPaymentReference(), order.getStatus());
+    }
+
+    private Transaction createPendingTransaction(PaymentOrder order, String description) {
+        Transaction transaction = new Transaction();
+        transaction.setType(TransactionType.DEPOSIT);
+        transaction.setDestinationWallet(order.getWallet());
+        transaction.setAmount(order.getAmount());
+        transaction.setCurrency(order.getWallet().getCurrency());
+        transaction.setPaymentMethod(order.getPaymentMethod());
+        transaction.setDescription(description);
+        return transactionStatusService.savePending(transaction);
     }
 
     private PaymentOrder findPendingOrder(UUID paymentOrderId) {
@@ -107,40 +124,44 @@ public class PaymentService {
         paymentOrderRepository.save(order);
     }
 
-    private void publishPaymentCompletedEvent(PaymentOrder order) {
+    private void publishPaymentCompletedEvent(PaymentOrder order, UUID transactionId) {
         PaymentCompletedEvent event = new PaymentCompletedEvent(
                 order.getPaymentOrderId(),
                 order.getWallet().getWalletId(),
+                transactionId,
                 order.getAmount(),
                 order.getPaymentReference(),
                 order.getPaymentMethod()
         );
         try {
-            kafkaTemplate.send(PAYMENT_COMPLETED_TOPIC, event.getPaymentOrderId().toString(), objectMapper.writeValueAsString(event));
+            outboxEventService.save(event.getPaymentOrderId().toString(), "PAYMENT_COMPLETED",
+                    PAYMENT_COMPLETED_TOPIC, objectMapper.writeValueAsString(event));
         } catch (JsonProcessingException e) {
             throw new RuntimeException(e);
         }
 
-        log.info("Payment completed event published: paymentOrderId={}, walletId={}, amount={}",
+        log.info("Payment completed event queued: paymentOrderId={}, walletId={}, amount={}",
                 event.getPaymentOrderId(), event.getWalletId(), event.getAmount());
     }
 
-    private void publishPaymentFailedEvent(PaymentOrder order, String gatewayPaymentId) {
+    private void publishPaymentFailedEvent(PaymentOrder order, String gatewayPaymentId, UUID transactionId) {
         PaymentFailedEvent event = new PaymentFailedEvent(
                 order.getPaymentOrderId(),
                 order.getWallet().getWalletId(),
+                transactionId,
                 order.getAmount(),
                 order.getPaymentReference(),
                 order.getPaymentMethod(),
                 gatewayPaymentId
         );
         try {
-            kafkaTemplate.send(PAYMENT_FAILED_TOPIC, event.getPaymentOrderId().toString(), objectMapper.writeValueAsString(event));
+            outboxEventService.save(event.getPaymentOrderId().toString(), "PAYMENT_FAILED",
+                    PAYMENT_FAILED_TOPIC, objectMapper.writeValueAsString(event));
         } catch (JsonProcessingException e) {
             throw new RuntimeException(e);
         }
 
-        log.info("Payment failed event published: paymentOrderId={}, walletId={}, amount={}",
+        log.info("Payment failed event queued: paymentOrderId={}, walletId={}, amount={}",
                 event.getPaymentOrderId(), event.getWalletId(), event.getAmount());
     }
 

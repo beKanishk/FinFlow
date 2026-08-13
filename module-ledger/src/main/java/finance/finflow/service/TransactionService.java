@@ -12,6 +12,7 @@ import finance.finflow.repository.TransactionRepository;
 import finance.finflow.repository.UserRepository;
 import finance.finflow.repository.WalletRepository;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -25,6 +26,7 @@ import java.util.NoSuchElementException;
 import java.util.Optional;
 import java.util.UUID;
 
+@Slf4j
 @Service
 @RequiredArgsConstructor
 public class TransactionService {
@@ -54,6 +56,7 @@ public class TransactionService {
         String requestHash = hash(walletId, amount, description);
         Optional<TransactionResponseDTO> existing = idempotencyService.check(idempotencyKey, requestHash, TransactionResponseDTO.class);
         if (existing.isPresent()) {
+            log.info("Deposit replayed from idempotency cache: walletId={}, idempotencyKey={}", walletId, idempotencyKey);
             return existing.get();
         }
 
@@ -75,31 +78,76 @@ public class TransactionService {
         transaction = transactionStatusService.savePending(transaction);
 
         try {
-            BigDecimal balanceAfter = wallet.getAmount().add(amount);
-
-            LedgerEntry ledgerEntry = new LedgerEntry();
-            ledgerEntry.setTransaction(transaction);
-            ledgerEntry.setWallet(wallet);
-            ledgerEntry.setEntryType(LedgerEntryType.CREDIT);
-            ledgerEntry.setAmount(amount);
-            ledgerEntry.setBalanceAfter(balanceAfter);
-            ledgerEntry.setDescription(description);
-            ledgerEntryRepository.save(ledgerEntry);
-
-            wallet.setAmount(balanceAfter);
-            wallet = walletRepository.save(wallet);
-            evictWallet(wallet.getWalletId());
-
-            transaction.setStatus(TransactionStatus.COMPLETED);
-            transaction = transactionRepository.save(transaction);
-
-            TransactionResponseDTO response = toDto(transaction, wallet);
-            idempotencyService.save(idempotencyKey, requestHash, transaction.getTransactionId(), response);
+            TransactionResponseDTO response = applyDeposit(transaction, wallet, amount, description, idempotencyKey, requestHash);
+            log.info("Deposit completed: transactionRef={}, walletId={}, amount={}", transaction.getTransactionReference(), walletId, amount);
             return response;
         } catch (Exception e) {
             transactionStatusService.markFailed(transaction);
+            log.warn("Deposit failed: transactionRef={}, walletId={}, amount={}, reason={}",
+                    transaction.getTransactionReference(), walletId, amount, e.getMessage());
             throw e;
         }
+    }
+
+    // Used when a PENDING transaction was already created upstream (e.g. PaymentService, before
+    // publishing to the outbox) so it's visible in history even if the outbox event never gets
+    // consumed. Unlike deposit(), the wallet lookup/validation happens inside the try block so any
+    // failure here — including a missing/inactive wallet — still resolves the existing PENDING
+    // row to FAILED instead of leaving it stuck.
+    @Transactional
+    public TransactionResponseDTO depositExisting(UUID transactionId, UUID walletId, BigDecimal amount, String description, String idempotencyKey) {
+        String requestHash = hash(walletId, amount, description);
+        Optional<TransactionResponseDTO> existing = idempotencyService.check(idempotencyKey, requestHash, TransactionResponseDTO.class);
+        if (existing.isPresent()) {
+            log.info("Deposit replayed from idempotency cache: walletId={}, idempotencyKey={}", walletId, idempotencyKey);
+            return existing.get();
+        }
+
+        Transaction transaction = transactionRepository.findByTransactionId(transactionId)
+                .orElseThrow(() -> new NoSuchElementException("Transaction not found: " + transactionId));
+
+        try {
+            Wallet wallet = walletRepository.findByWalletId(walletId)
+                    .orElseThrow(() -> new RuntimeException("Wallet not found: " + walletId));
+
+            if (wallet.getStatus() != WalletStatus.ACTIVE) {
+                throw new IllegalStateException("Wallet is not active: " + walletId);
+            }
+
+            TransactionResponseDTO response = applyDeposit(transaction, wallet, amount, description, idempotencyKey, requestHash);
+            log.info("Deposit completed: transactionRef={}, walletId={}, amount={}", transaction.getTransactionReference(), walletId, amount);
+            return response;
+        } catch (Exception e) {
+            transactionStatusService.markFailed(transaction);
+            log.warn("Deposit failed: transactionRef={}, walletId={}, amount={}, reason={}",
+                    transaction.getTransactionReference(), walletId, amount, e.getMessage());
+            throw e;
+        }
+    }
+
+    private TransactionResponseDTO applyDeposit(Transaction transaction, Wallet wallet, BigDecimal amount,
+                                                 String description, String idempotencyKey, String requestHash) {
+        BigDecimal balanceAfter = wallet.getAmount().add(amount);
+
+        LedgerEntry ledgerEntry = new LedgerEntry();
+        ledgerEntry.setTransaction(transaction);
+        ledgerEntry.setWallet(wallet);
+        ledgerEntry.setEntryType(LedgerEntryType.CREDIT);
+        ledgerEntry.setAmount(amount);
+        ledgerEntry.setBalanceAfter(balanceAfter);
+        ledgerEntry.setDescription(description);
+        ledgerEntryRepository.save(ledgerEntry);
+
+        wallet.setAmount(balanceAfter);
+        wallet = walletRepository.save(wallet);
+        evictWallet(wallet.getWalletId());
+
+        transaction.setStatus(TransactionStatus.COMPLETED);
+        transaction = transactionRepository.save(transaction);
+
+        TransactionResponseDTO response = toDto(transaction, wallet);
+        idempotencyService.save(idempotencyKey, requestHash, transaction.getTransactionId(), response);
+        return response;
     }
 
     @Transactional
@@ -107,6 +155,7 @@ public class TransactionService {
         String requestHash = hash(walletId, amount, description);
         Optional<TransactionResponseDTO> existing = idempotencyService.check(idempotencyKey, requestHash, TransactionResponseDTO.class);
         if (existing.isPresent()) {
+            log.info("Withdrawal replayed from idempotency cache: walletId={}, idempotencyKey={}", walletId, idempotencyKey);
             return existing.get();
         }
 
@@ -151,9 +200,12 @@ public class TransactionService {
 
             TransactionResponseDTO response = toDto(transaction, wallet);
             idempotencyService.save(idempotencyKey, requestHash, transaction.getTransactionId(), response);
+            log.info("Withdrawal completed: transactionRef={}, walletId={}, amount={}", transaction.getTransactionReference(), walletId, amount);
             return response;
         } catch (Exception e) {
             transactionStatusService.markFailed(transaction);
+            log.warn("Withdrawal failed: transactionRef={}, walletId={}, amount={}, reason={}",
+                    transaction.getTransactionReference(), walletId, amount, e.getMessage());
             throw e;
         }
     }
@@ -174,6 +226,7 @@ public class TransactionService {
         String requestHash = hash(sourceWalletId, destinationWalletId, amount, description);
         Optional<TransferResponseDTO> existing = idempotencyService.check(idempotencyKey, requestHash, TransferResponseDTO.class);
         if (existing.isPresent()) {
+            log.info("Transfer replayed from idempotency cache: sourceWalletId={}, idempotencyKey={}", sourceWalletId, idempotencyKey);
             return existing.get();
         }
 
@@ -252,9 +305,13 @@ public class TransactionService {
                     transaction.getDescription()
             );
             idempotencyService.save(idempotencyKey, requestHash, transaction.getTransactionId(), response);
+            log.info("Transfer completed: transactionRef={}, sourceWalletId={}, destinationWalletId={}, amount={}",
+                    transaction.getTransactionReference(), sourceWalletId, destinationWalletId, amount);
             return response;
         } catch (Exception e) {
             transactionStatusService.markFailed(transaction);
+            log.warn("Transfer failed: transactionRef={}, sourceWalletId={}, destinationWalletId={}, amount={}, reason={}",
+                    transaction.getTransactionReference(), sourceWalletId, destinationWalletId, amount, e.getMessage());
             throw e;
         }
     }

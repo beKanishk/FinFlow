@@ -5,6 +5,7 @@ import finance.finflow.module.IdempotencyRecord;
 import finance.finflow.repository.IdempotencyRecordRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.SneakyThrows;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
 
@@ -12,6 +13,7 @@ import java.time.Duration;
 import java.util.Optional;
 import java.util.UUID;
 
+@Slf4j
 @Service
 @RequiredArgsConstructor
 public class IdempotencyService {
@@ -31,6 +33,7 @@ public class IdempotencyService {
         if (cached != null) {
             CachedRecord record = read(cached, CachedRecord.class);
             if (!record.requestHash().equals(requestHash)) {
+                log.warn("Idempotency key conflict (Redis): key={}", key);
                 throw new IllegalStateException("Idempotency key reused with a different request: " + key);
             }
             return Optional.of(read(record.response(), responseType));
@@ -40,6 +43,7 @@ public class IdempotencyService {
         return idempotencyRecordRepository.findByIdempotencyKey(key)
                 .map(existing -> {
                     if (!existing.getRequestHash().equals(requestHash)) {
+                        log.warn("Idempotency key conflict (DB): key={}", key);
                         throw new IllegalStateException("Idempotency key reused with a different request: " + key);
                     }
                     // Backfill Redis so next hit is served from cache

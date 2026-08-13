@@ -15,6 +15,7 @@ public class PaymentFailedEvent {
 
     private UUID paymentOrderId;
     private UUID walletId;
+    private UUID transactionId;
     private BigDecimal amount;
     private String paymentReference;
     private PaymentMethod paymentMethod;
