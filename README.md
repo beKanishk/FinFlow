@@ -195,7 +195,7 @@ Filter options:
 
 ### Payments
 
-The payment flow is two steps: initiate → webhook. This simulates a real payment gateway where money only enters the system after the gateway confirms success. The webhook itself is just an acknowledgement — deposit and failure handling happen asynchronously via Kafka (see [Async Payment Processing](#async-payment-processing-kafka) below).
+The payment flow is two steps: initiate → webhook. This simulates a real payment gateway where money only enters the system after the gateway confirms success. The webhook itself is just an acknowledgement — deposit and failure handling happen asynchronously via Kafka (see [Async Payment Processing](#async-payment-processing-kafka--transactional-outbox) below).
 
 | Method | Endpoint | Auth | Description |
 |---|---|---|---|
@@ -223,7 +223,7 @@ Response includes a `paymentOrderId` and `paymentReference` (e.g. `PAY-20260704-
 }
 ```
 
-The webhook validates the order, updates its status, and returns an ack immediately — it does not wait for the deposit:
+The webhook validates the order, updates its status, **creates a `PENDING` transaction right away**, and returns an ack immediately — it does not wait for the deposit:
 ```json
 {
   "paymentOrderId": "uuid-from-step-1",
@@ -232,29 +232,36 @@ The webhook validates the order, updates its status, and returns an ack immediat
 }
 ```
 
-- `SUCCESS` → a `PAYMENT_COMPLETED` event is published; a consumer performs the deposit and credits the wallet moments later
-- `FAILED` → a `PAYMENT_FAILED` event is published; a consumer records a `FAILED` transaction for audit, wallet unchanged
+- `SUCCESS` → a `PAYMENT_COMPLETED` event is queued for publishing; a consumer completes the same `PENDING` transaction (deposit + wallet credit) moments later
+- `FAILED` → a `PAYMENT_FAILED` event is queued; a consumer resolves the same `PENDING` transaction to `FAILED`, wallet unchanged
+
+Because the `PENDING` transaction is written synchronously inside the webhook request (before anything touches Kafka), it's visible in transaction history immediately — even if the async pipeline below is degraded or Kafka is unreachable. See [How Money Moves](#how-money-moves-two-phase-commit).
 
 Poll `GET /wallets/{walletId}` or the transaction history endpoints to see the result once the async pipeline finishes processing.
 
 ---
 
-## Async Payment Processing (Kafka)
+## Async Payment Processing (Kafka + Transactional Outbox)
 
-Once the webhook acknowledges a gateway callback, the rest of the flow runs through Kafka topics instead of inline code. Each topic has its own consumer group, so a redelivered message is safe to reprocess — the deposit itself is idempotent (keyed by `paymentOrderId`).
+The webhook never talks to Kafka directly. It writes an `OutboxEvent` row (`PENDING`, in the same DB transaction as the `PaymentOrder`/`Transaction` update) instead of calling `KafkaTemplate.send(...)` inline — this avoids the classic dual-write problem where a DB commit succeeds but the Kafka send is lost, or vice versa. A separate scheduled `OutboxPublisher` (`@Scheduled(fixedDelay = 1000)`) does the actual publishing:
+
+1. Locks a batch of due `PENDING` rows with `SELECT ... FOR UPDATE SKIP LOCKED` (safe for multiple app instances — each grabs a disjoint batch instead of double-publishing).
+2. Sends each to Kafka. On success → `PUBLISHED`. On failure → `retryCount++` and `nextRetryAt` backs off exponentially (`2^retryCount` seconds), retried again once due. After 5 failures, the event is marked `FAILED` (a poison message won't block the batch forever — but since the `Transaction` behind it was already created as `PENDING` in step 1, the money movement itself is never silently lost, just stuck for manual follow-up).
+
+Each Kafka topic has its own consumer group, so a redelivered message is safe to reprocess — the deposit itself is idempotent (keyed by `paymentOrderId`), and each event carries the `transactionId` of the `PENDING` row created by the webhook so consumers resolve that same row instead of creating a new one.
 
 | Topic | Published by | Consumer group | Consumer does |
 |---|---|---|---|
-| `payment-completed` | `/payments/webhook` on `SUCCESS` | `finflow-deposit-group` | Deposits to the wallet, then publishes `wallet-credited` |
-| `payment-failed` | `/payments/webhook` on `FAILED` | `finflow-failure-group` | Records a `FAILED` transaction for audit |
-| `wallet-credited` | deposit consumer, after a successful deposit | `finflow-notify-group` | Logs the credit (no further business logic) |
+| `payment-completed` | outbox publisher, after webhook `SUCCESS` | `finflow-deposit-group` | Completes the pending deposit transaction, credits the wallet, then queues `wallet-credited` |
+| `payment-failed` | outbox publisher, after webhook `FAILED` | `finflow-failure-group` | Resolves the pending transaction to `FAILED` |
+| `wallet-credited` | outbox publisher, after a successful deposit | `finflow-notify-group` | Logs the credit (no further business logic) |
 
 ```
-webhook (SUCCESS) ──▶ payment-completed ──▶ [deposit consumer] ──▶ wallet-credited ──▶ [log consumer]
-webhook (FAILED)  ──▶ payment-failed    ──▶ [failure consumer]
+webhook (SUCCESS) ─▶ PENDING transaction + outbox row ─▶ [OutboxPublisher] ─▶ payment-completed ─▶ [deposit consumer] ─▶ outbox row ─▶ [OutboxPublisher] ─▶ wallet-credited ─▶ [log consumer]
+webhook (FAILED)  ─▶ PENDING transaction + outbox row ─▶ [OutboxPublisher] ─▶ payment-failed    ─▶ [failure consumer]
 ```
 
-Requires a Kafka broker on `localhost:9092` (see Prerequisites) — the app still starts without one, but the webhook's published events won't be consumed until the broker is reachable.
+Requires a Kafka broker on `localhost:9092` (see Prerequisites) — the app still starts without one, and outbox rows just accumulate as `PENDING`/retrying until the broker becomes reachable, at which point the publisher catches up automatically.
 
 ---
 
@@ -267,7 +274,7 @@ Every transaction is committed in two independent database transactions:
 3. On success → status updated to **COMPLETED**
 4. On failure → status updated to **FAILED**, partial changes rolled back
 
-This means failed operations always leave an audit trail.
+This means failed operations always leave an audit trail. For payments, step 1 happens synchronously inside the webhook request itself (before the outbox/Kafka pipeline even starts) — so the same guarantee holds even if the async completion never arrives.
 
 ---
 

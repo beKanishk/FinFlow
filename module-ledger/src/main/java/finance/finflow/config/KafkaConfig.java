@@ -13,6 +13,9 @@ import org.springframework.kafka.core.DefaultKafkaConsumerFactory;
 import org.springframework.kafka.core.DefaultKafkaProducerFactory;
 import org.springframework.kafka.core.KafkaTemplate;
 import org.springframework.kafka.core.ProducerFactory;
+import org.springframework.kafka.listener.DeadLetterPublishingRecoverer;
+import org.springframework.kafka.listener.DefaultErrorHandler;
+import org.springframework.util.backoff.FixedBackOff;
 
 import java.util.HashMap;
 import java.util.Map;
@@ -53,11 +56,29 @@ public class KafkaConfig {
         return new DefaultKafkaConsumerFactory<>(props, new StringDeserializer(), new StringDeserializer());
     }
 
+    // A listener that keeps throwing (bad payload, downstream bug) would otherwise block its
+    // partition forever via infinite redelivery. Retry a few times locally, then hand the record
+    // off to "<topic>.DLT" via DeadLetterPublishingRecoverer instead of retrying indefinitely —
+    // keeps the consumer group moving and leaves the poison message inspectable/replayable rather
+    // than silently dropped.
+    //
+    // The topic name is spelled out explicitly here (instead of relying on the library's built-in
+    // default) so it's guaranteed to match what DeadLetterListener is actually subscribed to -
+    // leaving it implicit caused a mismatch where messages went to "<topic>-dlt" but the listener
+    // was waiting on "<topic>.DLT", so nothing ever arrived.
+    @Bean
+    public DefaultErrorHandler kafkaErrorHandler(KafkaTemplate<String, String> kafkaTemplate) {
+        DeadLetterPublishingRecoverer recoverer = new DeadLetterPublishingRecoverer(kafkaTemplate,
+                (record, exception) -> new org.apache.kafka.common.TopicPartition(record.topic() + ".DLT", record.partition()));
+        return new DefaultErrorHandler(recoverer, new FixedBackOff(1000L, 3L));
+    }
+
     @Bean
     public ConcurrentKafkaListenerContainerFactory<String, String> kafkaListenerContainerFactory(
-            ConsumerFactory<String, String> consumerFactory) {
+            ConsumerFactory<String, String> consumerFactory, DefaultErrorHandler kafkaErrorHandler) {
         ConcurrentKafkaListenerContainerFactory<String, String> factory = new ConcurrentKafkaListenerContainerFactory<>();
         factory.setConsumerFactory(consumerFactory);
+        factory.setCommonErrorHandler(kafkaErrorHandler);
         return factory;
     }
 }
