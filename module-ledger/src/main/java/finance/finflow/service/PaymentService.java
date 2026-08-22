@@ -98,7 +98,10 @@ public class PaymentService {
         return new PaymentWebhookAckResponse(order.getPaymentOrderId(), order.getPaymentReference(), order.getStatus());
     }
 
-    private Transaction createPendingTransaction(PaymentOrder order, String description) {
+    // Package-private (not private) so ReconciliationService, in the same package, can reuse this
+    // exact builder instead of duplicating it when it needs to create a transaction that was
+    // somehow never created the first time round.
+    Transaction createPendingTransaction(PaymentOrder order, String description) {
         Transaction transaction = new Transaction();
         transaction.setType(TransactionType.DEPOSIT);
         transaction.setDestinationWallet(order.getWallet());
@@ -106,6 +109,7 @@ public class PaymentService {
         transaction.setCurrency(order.getWallet().getCurrency());
         transaction.setPaymentMethod(order.getPaymentMethod());
         transaction.setDescription(description);
+        transaction.setPaymentOrderId(order.getPaymentOrderId());
         return transactionStatusService.savePending(transaction);
     }
 
@@ -124,7 +128,9 @@ public class PaymentService {
         paymentOrderRepository.save(order);
     }
 
-    private void publishPaymentCompletedEvent(PaymentOrder order, UUID transactionId) {
+    // Package-private for the same reason as createPendingTransaction above — ReconciliationService
+    // reuses this to write a fresh recovery event instead of rebuilding PaymentCompletedEvent itself.
+    void publishPaymentCompletedEvent(PaymentOrder order, UUID transactionId) {
         PaymentCompletedEvent event = new PaymentCompletedEvent(
                 order.getPaymentOrderId(),
                 order.getWallet().getWalletId(),

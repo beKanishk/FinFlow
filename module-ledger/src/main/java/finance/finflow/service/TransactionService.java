@@ -82,7 +82,7 @@ public class TransactionService {
             log.info("Deposit completed: transactionRef={}, walletId={}, amount={}", transaction.getTransactionReference(), walletId, amount);
             return response;
         } catch (Exception e) {
-            transactionStatusService.markFailed(transaction);
+            transactionStatusService.markFailed(transaction, classifyFailure(e), e.getMessage());
             log.warn("Deposit failed: transactionRef={}, walletId={}, amount={}, reason={}",
                     transaction.getTransactionReference(), walletId, amount, e.getMessage());
             throw e;
@@ -118,7 +118,7 @@ public class TransactionService {
             log.info("Deposit completed: transactionRef={}, walletId={}, amount={}", transaction.getTransactionReference(), walletId, amount);
             return response;
         } catch (Exception e) {
-            transactionStatusService.markFailed(transaction);
+            transactionStatusService.markFailed(transaction, classifyFailure(e), e.getMessage());
             log.warn("Deposit failed: transactionRef={}, walletId={}, amount={}, reason={}",
                     transaction.getTransactionReference(), walletId, amount, e.getMessage());
             throw e;
@@ -203,7 +203,7 @@ public class TransactionService {
             log.info("Withdrawal completed: transactionRef={}, walletId={}, amount={}", transaction.getTransactionReference(), walletId, amount);
             return response;
         } catch (Exception e) {
-            transactionStatusService.markFailed(transaction);
+            transactionStatusService.markFailed(transaction, classifyFailure(e), e.getMessage());
             log.warn("Withdrawal failed: transactionRef={}, walletId={}, amount={}, reason={}",
                     transaction.getTransactionReference(), walletId, amount, e.getMessage());
             throw e;
@@ -309,7 +309,7 @@ public class TransactionService {
                     transaction.getTransactionReference(), sourceWalletId, destinationWalletId, amount);
             return response;
         } catch (Exception e) {
-            transactionStatusService.markFailed(transaction);
+            transactionStatusService.markFailed(transaction, classifyFailure(e), e.getMessage());
             log.warn("Transfer failed: transactionRef={}, sourceWalletId={}, destinationWalletId={}, amount={}, reason={}",
                     transaction.getTransactionReference(), sourceWalletId, destinationWalletId, amount, e.getMessage());
             throw e;
@@ -392,6 +392,26 @@ public class TransactionService {
                 wallet.getAmount(),
                 transaction.getDescription()
         );
+    }
+
+    // Turns the exception message we already throw at each validation check into a short code, so
+    // a failed Transaction row says *why* it failed instead of just "FAILED". Keyed off the exact
+    // wording used in the throw statements above - if those messages change, update this too.
+    private FailureCode classifyFailure(Exception e) {
+        String message = e.getMessage() == null ? "" : e.getMessage();
+        if (message.startsWith("Wallet not found")) {
+            return FailureCode.WALLET_NOT_FOUND;
+        }
+        if (message.startsWith("Wallet is not active")) {
+            return FailureCode.WALLET_INACTIVE;
+        }
+        if (message.startsWith("Insufficient balance")) {
+            return FailureCode.INSUFFICIENT_BALANCE;
+        }
+        if (message.startsWith("Currency mismatch")) {
+            return FailureCode.CURRENCY_MISMATCH;
+        }
+        return FailureCode.UNKNOWN_ERROR;
     }
 
     private void evictWallet(UUID walletId) {

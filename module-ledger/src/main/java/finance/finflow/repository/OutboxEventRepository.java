@@ -7,6 +7,7 @@ import org.springframework.data.repository.query.Param;
 
 import java.time.Instant;
 import java.util.List;
+import java.util.Optional;
 
 public interface OutboxEventRepository extends JpaRepository<OutboxEvent, Long> {
 
@@ -25,4 +26,9 @@ public interface OutboxEventRepository extends JpaRepository<OutboxEvent, Long> 
             FOR UPDATE SKIP LOCKED
             """, nativeQuery = true)
     List<OutboxEvent> findAndLockPendingBatch(@Param("now") Instant now);
+
+    // Used by ReconciliationService to find the latest publish attempt for a payment order, so it
+    // knows whether to leave it alone (still PENDING), reset it (FAILED), or write a fresh one
+    // (nothing found).
+    Optional<OutboxEvent> findTopByAggregateIdAndEventTypeOrderByIdDesc(String aggregateId, String eventType);
 }

@@ -1,6 +1,7 @@
 package finance.finflow.repository;
 
 import finance.finflow.module.Transaction;
+import finance.finflow.module.TransactionStatus;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
@@ -14,6 +15,10 @@ import java.util.UUID;
 public interface TransactionRepository extends JpaRepository<Transaction, Long> {
 
     Optional<Transaction> findByTransactionId(UUID transactionId);
+
+    Optional<TransactionStatusView> findProjectedByPaymentOrderId(UUID paymentOrderId);
+
+    long countByStatus(TransactionStatus status);
 
     @Query(value = """
             SELECT DISTINCT t.* FROM transactions t

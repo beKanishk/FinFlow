@@ -42,6 +42,13 @@ public class OutboxEvent {
     @Column(name = "next_retry_at", nullable = false)
     private Instant nextRetryAt;
 
+    @Enumerated(EnumType.STRING)
+    @Column(name = "failure_code")
+    private FailureCode failureCode;
+
+    @Column(name = "failure_message", columnDefinition = "TEXT")
+    private String failureMessage;
+
     @PrePersist
     void onCreate() {
         createdAt = Instant.now();

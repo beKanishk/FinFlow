@@ -49,4 +49,18 @@ public class Transaction extends AbstractBaseEntity {
     @Enumerated(EnumType.STRING)
     @Column(name = "payment_method")
     private PaymentMethod paymentMethod;
+
+    // Only set when this transaction was created from a payment webhook (PaymentService).
+    // Direct deposits/withdrawals/transfers have no payment order behind them, so this stays null.
+    // Lets reconciliation look up "the transaction for this payment order" directly instead of
+    // guessing from a description string.
+    @Column(name = "payment_order_id")
+    private UUID paymentOrderId;
+
+    @Enumerated(EnumType.STRING)
+    @Column(name = "failure_code")
+    private FailureCode failureCode;
+
+    @Column(name = "failure_message", columnDefinition = "TEXT")
+    private String failureMessage;
 }

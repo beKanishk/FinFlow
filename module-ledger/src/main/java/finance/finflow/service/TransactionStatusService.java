@@ -1,5 +1,6 @@
 package finance.finflow.service;
 
+import finance.finflow.module.FailureCode;
 import finance.finflow.module.Transaction;
 import finance.finflow.module.TransactionStatus;
 import finance.finflow.module.TransactionType;
@@ -38,8 +39,10 @@ public class TransactionStatusService {
     }
 
     @Transactional(propagation = Propagation.REQUIRES_NEW)
-    public void markFailed(Transaction transaction) {
+    public void markFailed(Transaction transaction, FailureCode code, String message) {
         transaction.setStatus(TransactionStatus.FAILED);
+        transaction.setFailureCode(code);
+        transaction.setFailureMessage(message);
         transactionRepository.save(transaction);
     }
 
@@ -47,10 +50,12 @@ public class TransactionStatusService {
     // called from within the same class elsewhere — Spring's proxy-based @Transactional wouldn't
     // apply to a same-class delegation.
     @Transactional(propagation = Propagation.REQUIRES_NEW)
-    public void markFailedById(UUID transactionId) {
+    public void markFailedById(UUID transactionId, FailureCode code, String message) {
         Transaction transaction = transactionRepository.findByTransactionId(transactionId)
                 .orElseThrow(() -> new NoSuchElementException("Transaction not found: " + transactionId));
         transaction.setStatus(TransactionStatus.FAILED);
+        transaction.setFailureCode(code);
+        transaction.setFailureMessage(message);
         transactionRepository.save(transaction);
     }
 

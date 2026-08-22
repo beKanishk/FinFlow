@@ -1,5 +1,6 @@
 package finance.finflow.service;
 
+import finance.finflow.module.FailureCode;
 import finance.finflow.module.OutboxEvent;
 import finance.finflow.module.OutboxEventStatus;
 import finance.finflow.repository.OutboxEventRepository;
@@ -52,6 +53,8 @@ public class OutboxPublisher {
             event.setRetryCount(event.getRetryCount() + 1);
             if (event.getRetryCount() >= MAX_RETRIES) {
                 event.setStatus(OutboxEventStatus.FAILED);
+                event.setFailureCode(FailureCode.KAFKA_PUBLISH_FAILED);
+                event.setFailureMessage(e.getMessage());
 
                 log.error("Outbox event permanently failed after {} retries: id={}, topic={}", event.getRetryCount(), event.getId(), event.getTopic(), e);
             } else {
