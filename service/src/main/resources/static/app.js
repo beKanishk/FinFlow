@@ -83,6 +83,7 @@ function logout(message) {
 async function enterDashboard(username) {
   document.getElementById('nav-username').textContent = username || localStorage.getItem('ff_username') || '';
   showSection('dashboard');
+  await checkAdminAccess();
   try {
     const wallet = await api('/wallets/me');
     walletId = wallet.walletId;
@@ -92,6 +93,20 @@ async function enterDashboard(username) {
     await loadTransactions();
   } catch {
     showSection('create-wallet');
+  }
+}
+
+// Shows the "DLT Admin" nav button only for users whose roles include ADMIN. This is just a UI
+// convenience, not the real access control - the DLT endpoints themselves are protected server-side
+// (@PreAuthorize("hasRole('ADMIN')") in DltAdminController), so hiding the button here only avoids
+// showing a non-admin a feature they'd get a 403 from anyway.
+async function checkAdminAccess() {
+  try {
+    const user = await api('/users/me');
+    const isAdmin = Array.isArray(user.roles) && user.roles.includes('ADMIN');
+    document.getElementById('dlt-admin-nav-btn').classList.toggle('d-none', !isAdmin);
+  } catch {
+    document.getElementById('dlt-admin-nav-btn').classList.add('d-none');
   }
 }
 
@@ -295,6 +310,7 @@ function showSection(name) {
   if (name !== 'auth') {
     document.getElementById('create-wallet-section').classList.toggle('d-none', name !== 'create-wallet');
     document.getElementById('wallet-section').classList.toggle('d-none', name !== 'wallet');
+    document.getElementById('dlt-admin-section').classList.toggle('d-none', name !== 'dlt-admin');
   }
 }
 
@@ -441,6 +457,96 @@ document.getElementById('apply-filter-btn').addEventListener('click', () => load
 document.getElementById('refresh-history-btn').addEventListener('click', () => loadTransactions(0));
 document.getElementById('prev-page-btn').addEventListener('click', () => loadTransactions(txPage - 1));
 document.getElementById('next-page-btn').addEventListener('click', () => loadTransactions(txPage + 1));
+
+// ─── DLT Admin ────────────────────────────────────────────────────────────────
+async function loadDltMessages() {
+  const topic = document.getElementById('dlt-topic').value;
+  const tbody = document.getElementById('dlt-table-body');
+  tbody.innerHTML = '<tr><td colspan="6" class="text-center text-muted py-3">Loading…</td></tr>';
+
+  const messages = await api(`/admin/dlt/${topic}?page=0&size=50`);
+
+  if (!messages.length) {
+    tbody.innerHTML = '<tr><td colspan="6" class="text-center text-muted py-3">No dead-lettered messages on this topic</td></tr>';
+    return;
+  }
+
+  tbody.innerHTML = '';
+  messages.forEach(msg => {
+    // Retry and Delete are both always clickable now - clicking either immediately marks the
+    // message resolved and hides it from the list, regardless of position. The badge just tells
+    // you whether Kafka can let go of it right this second (deletable) or whether it has to wait
+    // for the scheduled sweep because something earlier is still unresolved (blocked) - purely
+    // informational, doesn't change what you're allowed to click.
+    const statusBadge = msg.deletable
+      ? '<span class="badge bg-success">Deletable now</span>'
+      : '<span class="badge bg-secondary">Blocked (queued for sweep)</span>';
+
+    const row = document.createElement('tr');
+    row.innerHTML = `
+      <td>${msg.partition}</td>
+      <td>${msg.offset}</td>
+      <td class="font-monospace small">${msg.key ?? ''}</td>
+      <td class="font-monospace small text-truncate" style="max-width: 320px;" title="${msg.value ?? ''}">${msg.value ?? ''}</td>
+      <td>${statusBadge}</td>
+      <td class="text-end">
+        <button class="btn btn-outline-success btn-sm dlt-retry-btn">Retry</button>
+        <button class="btn btn-outline-danger btn-sm dlt-delete-btn">Delete</button>
+      </td>
+    `;
+    row.querySelector('.dlt-retry-btn').addEventListener('click', () => retryDltMessage(topic, msg.partition, msg.offset));
+    row.querySelector('.dlt-delete-btn').addEventListener('click', () => deleteDltMessage(topic, msg.partition, msg.offset));
+    tbody.appendChild(row);
+  });
+}
+
+async function retryDltMessage(topic, partition, offset) {
+  clearAlert('dlt-admin-alert');
+  try {
+    await api(`/admin/dlt/${topic}/retry`, {
+      method: 'POST',
+      body: { partition, offset },
+    });
+    showAlert('dlt-admin-alert', `Replayed message at partition ${partition}, offset ${offset}`, 'success');
+    await loadDltMessages();
+  } catch (err) {
+    showAlert('dlt-admin-alert', err.message);
+  }
+}
+
+// Discards a message without republishing it - for ones that should never be reprocessed.
+async function deleteDltMessage(topic, partition, offset) {
+  if (!confirm(`Discard the message at partition ${partition}, offset ${offset}? It will NOT be retried.`)) {
+    return;
+  }
+  clearAlert('dlt-admin-alert');
+  try {
+    await api(`/admin/dlt/${topic}?partition=${partition}&offset=${offset}`, { method: 'DELETE' });
+    showAlert('dlt-admin-alert', `Discarded message at partition ${partition}, offset ${offset}`, 'success');
+    await loadDltMessages();
+  } catch (err) {
+    showAlert('dlt-admin-alert', err.message);
+  }
+}
+
+document.getElementById('dlt-admin-nav-btn').addEventListener('click', async () => {
+  showSection('dlt-admin');
+  clearAlert('dlt-admin-alert');
+  try {
+    await loadDltMessages();
+  } catch (err) {
+    showAlert('dlt-admin-alert', err.message);
+  }
+});
+document.getElementById('dlt-back-btn').addEventListener('click', () => showSection('wallet'));
+document.getElementById('dlt-load-btn').addEventListener('click', async () => {
+  clearAlert('dlt-admin-alert');
+  try {
+    await loadDltMessages();
+  } catch (err) {
+    showAlert('dlt-admin-alert', err.message);
+  }
+});
 
 // ─── Dark mode ────────────────────────────────────────────────────────────────
 function applyTheme(dark) {
