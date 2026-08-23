@@ -263,6 +263,92 @@ webhook (FAILED)  ─▶ PENDING transaction + outbox row ─▶ [OutboxPublishe
 
 Requires a Kafka broker on `localhost:9092` (see Prerequisites) — the app still starts without one, and outbox rows just accumulate as `PENDING`/retrying until the broker becomes reachable, at which point the publisher catches up automatically.
 
+Two more consumer groups independently read all 3 topics, on top of the business ones above (Kafka gives every consumer group its own full copy) — see [Dead Letter Topics](#dead-letter-topics-dlt) and [Audit Log](#audit-log) below.
+
+---
+
+## Failure Codes
+
+When a `Transaction` or `OutboxEvent` ends up `FAILED`, it's not just a bare status — a `failureCode` + `failureMessage` explain why:
+
+```java
+enum FailureCode {
+    WALLET_NOT_FOUND, WALLET_INACTIVE, INSUFFICIENT_BALANCE, CURRENCY_MISMATCH,
+    PAYMENT_GATEWAY_DECLINED, KAFKA_PUBLISH_FAILED, UNKNOWN_ERROR
+}
+```
+
+- `Transaction.failureCode` — set from whichever validation check actually failed (`WALLET_NOT_FOUND`, `WALLET_INACTIVE`, `INSUFFICIENT_BALANCE`, `CURRENCY_MISMATCH`, or `UNKNOWN_ERROR` as a fallback), or `PAYMENT_GATEWAY_DECLINED` when a webhook reports the gateway itself declined the payment.
+- `OutboxEvent.failureCode` — always `KAFKA_PUBLISH_FAILED` on a terminal (post-retry) failure, since the only way an outbox row fails is Kafka being unreachable when the publisher tries to send it.
+
+---
+
+## Reconciliation
+
+A safety net (`ReconciliationService`, `@Scheduled` every 5 minutes) that looks for payments where the `PaymentOrder` says `SUCCESS` but the money never actually showed up — and tries to get it moving again instead of leaving it stuck. Only orders older than a 2-minute safety buffer are checked, so it never races the normal in-flight webhook → outbox → Kafka → deposit path.
+
+```
+Every 5 min → find PaymentOrders where status = SUCCESS (and old enough)
+                              │
+                 find the Transaction for that order
+                              │
+              ┌───────────────┴────────────────┐
+          COMPLETED                      missing / PENDING
+              │                                 │
+           nothing                  find the latest PAYMENT_COMPLETED outbox event
+                                                 │
+                              ┌──────────────────┼───────────────────────┐
+                          PENDING              FAILED                 missing
+                              │                   │                       │
+                    leave it (OutboxPublisher   reset it to PENDING    create a fresh
+                     is already retrying it)     to retry again        recovery event
+```
+
+If the `Transaction` itself is already `FAILED` (a real validation failure, e.g. the wallet went inactive), reconciliation leaves it alone — that needs a human, not an automatic retry. Each run also logs a count of all currently-`FAILED` transactions for visibility.
+
+---
+
+## Dead Letter Topics (DLT)
+
+If a Kafka **consumer** (not the outbox publisher — a listener like the deposit consumer) keeps throwing on a message, it doesn't get retried forever and it doesn't get silently dropped. `KafkaConfig` wires up a `DefaultErrorHandler`: retry 3 times (1s apart), then publish the raw message to `<topic>.DLT` (e.g. `payment-completed.DLT`) via `DeadLetterPublishingRecoverer`. A log-only `DeadLetterListener` (group `finflow-dlt-group`) also picks up everything that lands there, just to log it.
+
+### Admin API for DLT messages
+`ADMIN`-role-only (see [Roles & Admin Access](#roles--admin-access)):
+
+| Method | Endpoint | Description |
+|---|---|---|
+| GET | `/admin/dlt/{topic}?page=0&size=50` | List messages on `{topic}.DLT` (paginated, 0-based) |
+| POST | `/admin/dlt/{topic}/retry` | Republish one message (body: `{"partition": 0, "offset": 5}`) back onto `{topic}` |
+| DELETE | `/admin/dlt/{topic}?partition=0&offset=5` | Discard one message without retrying it |
+
+Both retry and delete immediately mark the message **resolved** in a `dlt_resolutions` table and it disappears from the list right away — regardless of whether Kafka has actually let go of the record yet. That's because **Kafka can't delete one arbitrary record**: a partition is an append-only log, and `AdminClient.deleteRecords()` can only trim everything before a given offset. So if a message is already the oldest one on its partition, it's purged from Kafka immediately; otherwise it just waits, physically still there but hidden, until a scheduled `DltCleanupScheduler` (also every 5 minutes) sweeps each DLT topic from the front and bulk-deletes the longest consecutive run of resolved messages it finds. The list response includes a `deletable` flag per message (informational — Retry/Delete work regardless) showing whether Kafka could remove it right this second or whether it's waiting on something ahead of it.
+
+---
+
+## Audit Log
+
+A dedicated Kafka consumer group, `finflow-audit-group`, listens to all 3 business topics *and* their `.DLT` counterparts — completely independent of the business consumers (deposit/failure/notify/dlt groups), since every consumer group gets its own full copy of a topic. It writes one row per event to `audit_logs`, regardless of whether the business consumer for that same message ever succeeds:
+
+| Column | Contents |
+|---|---|
+| `topic` | The actual Kafka topic the message arrived on (business or `.DLT`) |
+| `eventType` | `PAYMENT_COMPLETED` / `PAYMENT_FAILED` / `WALLET_CREDITED` |
+| `userId` | Username of the wallet owner (looked up from the event's `walletId`), or `null` if the wallet couldn't be found |
+| `details` | Short human-readable summary, e.g. `"Payment completed: amount=500.00, ref=PAY-..., method=UPI"` |
+| `payload` | The raw event JSON, verbatim, for full traceability |
+
+---
+
+## Roles & Admin Access
+
+Every new user registers with `roles = ["USER"]`. An `ADMIN` role is required for the DLT admin API and for granting/revoking roles on other users (`PUT /auth/role`, `PUT /auth/remove/role` in lib-commons) — both are gated with `@PreAuthorize("hasRole('ADMIN')")`.
+
+Since granting `ADMIN` itself requires already being `ADMIN`, **the first admin has to be created directly in the database** — there's no bootstrap endpoint:
+```sql
+INSERT INTO user_roles (user_id, role) VALUES (<user's internal id>, 'ADMIN');
+```
+Once that's done, that user can promote/demote anyone else via `PUT /auth/role?username=...&role=ADMIN`. The frontend shows a "DLT Admin" nav button only when `GET /users/me` reports `ADMIN` in `roles` — that's just UI convenience, the real enforcement is server-side.
+
 ---
 
 ## How Money Moves (Two-Phase Commit)
@@ -309,6 +395,7 @@ Open `http://localhost:8080` in a browser. Features:
 - Withdraw and transfer
 - Transaction history with filters (status, type, date range)
 - Dark mode toggle
+- **DLT Admin panel** (visible only to `ADMIN` users) — pick a topic, list its dead-lettered messages, and Retry or Delete each one
 
 ---
 

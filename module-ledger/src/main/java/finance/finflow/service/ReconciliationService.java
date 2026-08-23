@@ -57,9 +57,6 @@ public class ReconciliationService {
 
 
     private void reconcileOrder(PaymentOrder order) {
-        // Projection instead of the full Transaction - all we read below is the status and id, and
-        // Transaction's sourceWallet/destinationWallet are eager-loaded by default, so fetching the
-        // whole entity here would pull in two extra Wallet rows for nothing.
         Optional<TransactionStatusView> transactionOpt = transactionRepository.findProjectedByPaymentOrderId(order.getPaymentOrderId());
 
         if (transactionOpt.isEmpty()) {
