@@ -74,7 +74,7 @@ class ReconciliationServiceTest {
     }
 
     private void stubDueOrders(PaymentOrder... orders) {
-        when(paymentOrderRepository.findByStatusAndUpdatedAtBefore(eq(PaymentStatus.SUCCESS), any(Instant.class)))
+        when(paymentOrderRepository.findAndLockDueForReconciliation(any(Instant.class)))
                 .thenReturn(List.of(orders));
     }
 

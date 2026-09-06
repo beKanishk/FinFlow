@@ -3,7 +3,6 @@ package finance.finflow.service;
 import finance.finflow.module.OutboxEvent;
 import finance.finflow.module.OutboxEventStatus;
 import finance.finflow.module.PaymentOrder;
-import finance.finflow.module.PaymentStatus;
 import finance.finflow.module.Transaction;
 import finance.finflow.module.TransactionStatus;
 import finance.finflow.repository.OutboxEventRepository;
@@ -41,11 +40,16 @@ public class ReconciliationService {
     private final PaymentService paymentService;
 
 
+    // Row locks from findAndLockDueForReconciliation only hold for the life of this transaction, so
+    // the fetch and the per-order processing below have to share one transaction - otherwise the
+    // locks would release the instant the SELECT returns, and a second app instance's sweep could
+    // grab the same orders and duplicate the work (e.g. both creating a pending transaction for the
+    // same payment order, since there's no unique constraint to catch that after the fact).
     @Transactional
     @Scheduled(fixedDelay = 300000)
     public void reconcile() {
         Instant cutoff = Instant.now().minus(SAFETY_BUFFER_MINUTES, ChronoUnit.MINUTES);
-        List<PaymentOrder> orders = paymentOrderRepository.findByStatusAndUpdatedAtBefore(PaymentStatus.SUCCESS, cutoff);
+        List<PaymentOrder> orders = paymentOrderRepository.findAndLockDueForReconciliation(cutoff);
 
         for (PaymentOrder order : orders) {
             reconcileOrder(order);
