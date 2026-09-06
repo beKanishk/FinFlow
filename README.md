@@ -255,15 +255,42 @@ Each Kafka topic has its own consumer group, so a redelivered message is safe to
 | `payment-completed` | outbox publisher, after webhook `SUCCESS` | `finflow-deposit-group` | Completes the pending deposit transaction, credits the wallet, then queues `wallet-credited` |
 | `payment-failed` | outbox publisher, after webhook `FAILED` | `finflow-failure-group` | Resolves the pending transaction to `FAILED` |
 | `wallet-credited` | outbox publisher, after a successful deposit | `finflow-notify-group` | Logs the credit (no further business logic) |
-
-```
-webhook (SUCCESS) ─▶ PENDING transaction + outbox row ─▶ [OutboxPublisher] ─▶ payment-completed ─▶ [deposit consumer] ─▶ outbox row ─▶ [OutboxPublisher] ─▶ wallet-credited ─▶ [log consumer]
-webhook (FAILED)  ─▶ PENDING transaction + outbox row ─▶ [OutboxPublisher] ─▶ payment-failed    ─▶ [failure consumer]
-```
+| `payment-completed`, `payment-failed`, `wallet-credited` | (same 3 topics, read again independently) | `finflow-audit-group` | Writes a row to `audit_logs` — see [Audit Log](#audit-log) |
+| `<topic>.DLT` (any of the 3, only if a business consumer keeps failing) | `DefaultErrorHandler`, after 3 failed local retries | `finflow-dlt-group` | Logs it — see [Dead Letter Topics](#dead-letter-topics-dlt) |
 
 Requires a Kafka broker on `localhost:9092` (see Prerequisites) — the app still starts without one, and outbox rows just accumulate as `PENDING`/retrying until the broker becomes reachable, at which point the publisher catches up automatically.
 
-Two more consumer groups independently read all 3 topics, on top of the business ones above (Kafka gives every consumer group its own full copy) — see [Dead Letter Topics](#dead-letter-topics-dlt) and [Audit Log](#audit-log) below.
+**Full current flow**, including the dead-letter and audit paths and the reconciliation safety net:
+
+```
+                                            ┌─────────────────────────────────────────────┐
+                                            │  webhook (SUCCESS or FAILED)                 │
+                                            │  → PaymentOrder updated + PENDING Transaction │
+                                            │  → OutboxEvent row written (same DB tx)      │
+                                            └───────────────────┬───────────────────────────┘
+                                                                 ▼
+                                            [OutboxPublisher]  (SKIP LOCKED batch, exp. backoff retry)
+                                                                 │
+                                   ┌─────────────────────────────┼─────────────────────────────┐
+                                   ▼                             ▼                             ▼
+                          payment-completed               payment-failed                wallet-credited
+                                   │                             │                             │
+                 ┌─────────────────┼───────────┐                 │                 ┌───────────┼─────────────────┐
+                 ▼                 ▼           ▼                 ▼                 ▼           ▼                 ▼
+   [finflow-deposit-group]  [audit-group]   (fails 3x)  [finflow-failure-group] [audit-group] (fails 3x)  [finflow-notify-group]
+   deposit + wallet credit   audit_logs row     │        transaction → FAILED    audit_logs row     │       logs only
+   → queues wallet-credited                     ▼                                                    ▼
+                                          payment-completed.DLT                              wallet-credited.DLT / payment-failed.DLT
+                                                 │
+                              ┌──────────────────┼──────────────────┐
+                              ▼                  ▼                  ▼
+                   [finflow-dlt-group]   [finflow-audit-group]   Admin API
+                      logs only           audit_logs row      (list / retry / delete,
+                                                                 ADMIN only)
+
+  [ReconciliationService] (every 5 min, independent of the above) ─▶ finds SUCCESS payment orders whose
+  transaction never completed ─▶ resets a stuck outbox row to PENDING, or writes a fresh recovery event
+```
 
 ---
 
@@ -348,6 +375,15 @@ Since granting `ADMIN` itself requires already being `ADMIN`, **the first admin 
 INSERT INTO user_roles (user_id, role) VALUES (<user's internal id>, 'ADMIN');
 ```
 Once that's done, that user can promote/demote anyone else via `PUT /auth/role?username=...&role=ADMIN`. The frontend shows a "DLT Admin" nav button only when `GET /users/me` reports `ADMIN` in `roles` — that's just UI convenience, the real enforcement is server-side.
+
+---
+
+## Concurrency & Locking
+
+Two different locking strategies, used for two different problems:
+
+- **Optimistic** — every entity extending lib-commons' `AbstractBaseEntity` (`Transaction`, `PaymentOrder`, `Wallet`, `User`, etc. — everything except the append-only/self-managed ones like `IdempotencyRecord` and `OutboxEvent`) carries a JPA `@Version` column. No DB lock is held; on update, JPA checks the version hasn't changed since the row was read, and throws `OptimisticLockException` if it has, instead of silently overwriting a concurrent change. This is the default, low-overhead choice for ordinary entity updates.
+- **Pessimistic** — `OutboxEventRepository.findAndLockPendingBatch` uses a native `SELECT ... FOR UPDATE SKIP LOCKED` query. `FOR UPDATE` takes a real row-level lock in Postgres at read time; `SKIP LOCKED` tells Postgres to skip rows another transaction already has locked instead of blocking on them. This is what makes `OutboxPublisher` safe to run from multiple app instances at once — each instance's poll grabs a disjoint batch of `PENDING` rows, so two instances can never publish the same outbox event twice. Optimistic locking wouldn't fit here: the goal isn't "detect a conflicting write after the fact," it's "never let two pollers claim the same row concurrently in the first place."
 
 ---
 

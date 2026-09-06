@@ -41,6 +41,7 @@ public class OutboxPublisher {
 
     private void publishOne(OutboxEvent event) {
         try {
+            //topic, key, data
             kafkaTemplate.send(event.getTopic(), event.getAggregateId(), event.getPayload())
                     .get(SEND_TIMEOUT_SECONDS, TimeUnit.SECONDS);
 
