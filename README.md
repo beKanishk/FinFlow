@@ -62,6 +62,19 @@ The API and frontend are both available at `http://localhost:8080`.
 ./gradlew test        # run tests only
 ```
 
+### Building a Docker image
+
+A multi-stage `Dockerfile` builds lib-commons first (into a throwaway Maven repo), then FinFlow against it, then copies just the runnable jar into a slim JRE image — so the container build never needs your host's `~/.m2`. Because lib-commons and FinFlow are sibling directories, **the build context has to be their shared parent directory**, not `FinFlow/` itself:
+
+```bash
+cd ..                                              # the directory containing both FinFlow/ and lib-commons/
+docker build -f FinFlow/Dockerfile -t finflow:latest .
+```
+
+Running `docker build .` from inside `FinFlow/` alone won't work — lib-commons wouldn't be visible to `COPY`.
+
+This only solves the *build-time* problem. The resulting image still points at `localhost` for Postgres/Redis/Kafka (see `application.properties`), so it won't be able to reach anything until those are externalized to environment variables — not done yet.
+
 ---
 
 ## Project Structure
